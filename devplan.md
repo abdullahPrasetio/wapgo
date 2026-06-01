@@ -79,16 +79,18 @@ Dokumen ini adalah peta jalan pengembangan framework. Acuan spesifikasi: [`promp
 
 **DoD:** ✅ `go build ./...` + `go vet ./...` bersih; semua test hijau; coverage > 80% semua paket; `/health` menampilkan status kafka & rabbitmq.
 
-### Fase v0.3 — Inter-service HTTP Client (Resilience)
+### Fase v0.3 — Inter-service HTTP Client (Resilience) ✅ SELESAI (2026-06-01)
 
 **Tujuan:** Komunikasi antar-service yang tahan gangguan.
 
-- [ ] `pkg/httpclient/base_client.go` — wrapper net/http; inject `X-Request-ID` & `Authorization` dari context; timeout konfigurabel (default 5s).
-- [ ] `pkg/httpclient/middleware.go` — retry (max 3, exponential backoff, hanya 5xx & network error); timeout context-aware (hormati deadline caller); circuit breaker (open setelah 5 gagal beruntun, half-open setelah 30s).
-- [ ] `pkg/httpclient/user_client.go` — implementasi interface `internal/domain/service/external_user.go` (`GetUser(ctx, id)`), URL dari `USER_SERVICE_URL`.
-- [ ] **Security:** TLS verify **ON** by default (`InsecureSkipVerify=false`); proteksi SSRF (validasi host tujuan terhadap allowlist, tolak redirect ke alamat internal/loopback/link-local); timeout & batas ukuran response untuk cegah resource exhaustion.
+- [x] `pkg/httpclient/base_client.go` — wrapper net/http; inject `X-Request-ID` & `Authorization` dari context; timeout konfigurabel (default 5s).
+- [x] `pkg/httpclient/middleware.go` — retry (max 3, exponential backoff, hanya 5xx & network error); timeout context-aware (hormati deadline caller); circuit breaker (open setelah 5 gagal beruntun, half-open setelah 30s).
+- [x] `pkg/httpclient/user_client.go` — implementasi interface `internal/domain/service/external_user.go` (`GetUser(ctx, id)`), URL dari `USER_SERVICE_URL`.
+- [x] **Security:** TLS verify **ON** by default (`InsecureSkipVerify=false`, `MinVersion=TLS1.2`); proteksi SSRF (validasi host tujuan terhadap allowlist, tolak redirect ke alamat internal/loopback/link-local); timeout & batas ukuran response (default 10MB) untuk cegah resource exhaustion.
 
-**DoD:** unit test resilience (retry & circuit breaker) + test SSRF guard lulus dengan server mock (`httptest`); example pemakaian client; coverage > 80%.
+**Hasil coverage:** httpclient 94.3% — **> 80%** ✅
+
+**DoD:** ✅ `go build ./...` + `go vet ./...` bersih; semua test hijau; coverage 94.3%; SSRF guard + retry + circuit breaker teruji dengan mock transport & `httptest`.
 
 ### Fase v0.4 — CLI `wapgo` (Installer + Generator)
 
