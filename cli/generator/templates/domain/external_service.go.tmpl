@@ -1,0 +1,13 @@
+package service
+
+import (
+	"context"
+
+	"[[.Module]]/internal/domain/entity"
+)
+
+// External[[.Pascal]]Service is the interface for fetching [[.Snake]] data from another microservice.
+// Implementation lives in pkg/httpclient/[[.Snake]]_client.go.
+type External[[.Pascal]]Service interface {
+	Get[[.Pascal]](ctx context.Context, id string) (*entity.[[.Pascal]], error)
+}

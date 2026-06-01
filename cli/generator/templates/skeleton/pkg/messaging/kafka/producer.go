@@ -1,0 +1,70 @@
+//go:build ignore
+
+package kafka
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/rs/zerolog"
+	kafkago "github.com/segmentio/kafka-go"
+
+	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
+)
+
+type writer interface {
+	WriteMessages(ctx context.Context, msgs ...kafkago.Message) error
+	Close() error
+}
+
+type Message struct {
+	Topic     string
+	Key       []byte
+	Value     []byte
+	RequestID string
+}
+
+type Producer struct {
+	w   writer
+	log zerolog.Logger
+}
+
+func NewProducer(brokers string, log zerolog.Logger) *Producer {
+	addrs := strings.Split(brokers, ",")
+	w := &kafkago.Writer{
+		Addr:         kafkago.TCP(addrs...),
+		Balancer:     &kafkago.LeastBytes{},
+		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		RequiredAcks: kafkago.RequireOne,
+		MaxAttempts:  3,
+	}
+	return &Producer{w: w, log: log}
+}
+
+func (p *Producer) Publish(ctx context.Context, msg Message) error {
+	rid := msg.RequestID
+	if rid == "" {
+		rid = applogger.RequestIDFromContext(ctx)
+	}
+	km := kafkago.Message{
+		Topic: msg.Topic,
+		Key:   msg.Key,
+		Value: msg.Value,
+		Time:  time.Now(),
+		Headers: []kafkago.Header{
+			{Key: "x-request-id", Value: []byte(rid)},
+			{Key: "content-type", Value: []byte("application/json")},
+		},
+	}
+	if err := p.w.WriteMessages(ctx, km); err != nil {
+		return fmt.Errorf("kafka publish topic=%s: %w", msg.Topic, err)
+	}
+	return nil
+}
+
+func (p *Producer) Close() error {
+	return p.w.Close()
+}

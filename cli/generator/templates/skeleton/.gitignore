@@ -27,20 +27,3 @@ logs/*.gz
 .vscode/
 *.swp
 *.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Air live reload
-tmp/
-
-# Local scaffold test outputs (wapgo new ...)
-shop/
-logs/
-
-# Secrets / keys
-*.pem
-*.key
-*.crt
-*.p12

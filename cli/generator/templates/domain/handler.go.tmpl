@@ -1,0 +1,89 @@
+package handler
+
+import (
+	"errors"
+
+	"github.com/gofiber/fiber/v2"
+
+	"[[.Module]]/internal/usecase"
+	"[[.Module]]/pkg/response"
+	"[[.Module]]/pkg/validator"
+)
+
+// [[.Pascal]]Handler handles HTTP requests for the [[.Snake]] domain.
+type [[.Pascal]]Handler struct {
+	uc  usecase.[[.Pascal]]UseCase
+	val *validator.Validator
+}
+
+// New[[.Pascal]]Handler creates a [[.Pascal]]Handler with the given usecase and validator.
+func New[[.Pascal]]Handler(uc usecase.[[.Pascal]]UseCase, val *validator.Validator) *[[.Pascal]]Handler {
+	return &[[.Pascal]]Handler{uc: uc, val: val}
+}
+
+func (h *[[.Pascal]]Handler) Get[[.Pascal]](c *fiber.Ctx) error {
+	id := c.Params("id")
+	item, err := h.uc.Get[[.Pascal]](c.UserContext(), id)
+	if err != nil {
+		return h.map[[.Pascal]]Error(c, err)
+	}
+	return response.Success(c, "[[.Snake]] retrieved", item)
+}
+
+func (h *[[.Pascal]]Handler) List[[.Pascal]]s(c *fiber.Ctx) error {
+	items, err := h.uc.List[[.Pascal]]s(c.UserContext())
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, "[[.Table]] retrieved", items)
+}
+
+func (h *[[.Pascal]]Handler) Create[[.Pascal]](c *fiber.Ctx) error {
+	var req usecase.Create[[.Pascal]]Request
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid request body")
+	}
+	if err := h.val.Validate(&req); err != nil {
+		return response.BadRequest(c, err.Error())
+	}
+	item, err := h.uc.Create[[.Pascal]](c.UserContext(), &req)
+	if err != nil {
+		return h.map[[.Pascal]]Error(c, err)
+	}
+	return response.Created(c, "[[.Snake]] created", item)
+}
+
+func (h *[[.Pascal]]Handler) Update[[.Pascal]](c *fiber.Ctx) error {
+	id := c.Params("id")
+	var req usecase.Update[[.Pascal]]Request
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid request body")
+	}
+	if err := h.val.Validate(&req); err != nil {
+		return response.BadRequest(c, err.Error())
+	}
+	item, err := h.uc.Update[[.Pascal]](c.UserContext(), id, &req)
+	if err != nil {
+		return h.map[[.Pascal]]Error(c, err)
+	}
+	return response.Success(c, "[[.Snake]] updated", item)
+}
+
+func (h *[[.Pascal]]Handler) Delete[[.Pascal]](c *fiber.Ctx) error {
+	id := c.Params("id")
+	if err := h.uc.Delete[[.Pascal]](c.UserContext(), id); err != nil {
+		return h.map[[.Pascal]]Error(c, err)
+	}
+	return response.Success(c, "[[.Snake]] deleted", nil)
+}
+
+func (h *[[.Pascal]]Handler) map[[.Pascal]]Error(c *fiber.Ctx, err error) error {
+	switch {
+	case errors.Is(err, usecase.Err[[.Pascal]]NotFound):
+		return response.NotFound(c, "[[.Snake]] not found")
+	case errors.Is(err, usecase.Err[[.Pascal]]InvalidUUID):
+		return response.BadRequest(c, "invalid id format")
+	default:
+		return response.InternalError(c)
+	}
+}

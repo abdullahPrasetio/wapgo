@@ -1,0 +1,19 @@
+package repository
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+
+	"[[.Module]]/internal/domain/entity"
+)
+
+// [[.Pascal]]Repository defines persistence operations for the [[.Snake]] domain.
+// Implementation lives in internal/repository/postgres/.
+type [[.Pascal]]Repository interface {
+	FindByID(ctx context.Context, id uuid.UUID) (*entity.[[.Pascal]], error)
+	FindAll(ctx context.Context) ([]*entity.[[.Pascal]], error)
+	Create(ctx context.Context, e *entity.[[.Pascal]]) error
+	Update(ctx context.Context, e *entity.[[.Pascal]]) error
+	Delete(ctx context.Context, id uuid.UUID) error
+}

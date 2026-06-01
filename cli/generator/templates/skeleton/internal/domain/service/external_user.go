@@ -1,0 +1,13 @@
+//go:build ignore
+
+package service
+
+import (
+	"context"
+
+	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
+)
+
+type ExternalUserService interface {
+	GetUser(ctx context.Context, id string) (*entity.User, error)
+}

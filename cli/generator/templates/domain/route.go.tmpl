@@ -1,0 +1,17 @@
+package route
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"[[.Module]]/internal/delivery/http/handler"
+)
+
+// Register[[.Pascal]]Routes binds [[.Snake]] CRUD endpoints to the given router group.
+func Register[[.Pascal]]Routes(router fiber.Router, h *handler.[[.Pascal]]Handler) {
+	[[.Table]] := router.Group("/[[.Table]]")
+	[[.Table]].Get("/", h.List[[.Pascal]]s)
+	[[.Table]].Get("/:id", h.Get[[.Pascal]])
+	[[.Table]].Post("/", h.Create[[.Pascal]])
+	[[.Table]].Put("/:id", h.Update[[.Pascal]])
+	[[.Table]].Delete("/:id", h.Delete[[.Pascal]])
+}

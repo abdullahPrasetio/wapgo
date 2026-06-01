@@ -1,0 +1,27 @@
+package entity
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+// [[.Pascal]] is the GORM model and domain entity for the [[.Snake]] aggregate.
+type [[.Pascal]] struct {
+	ID        uuid.UUID      `gorm:"type:uuid;primaryKey;not null" json:"id"`
+	CreatedAt time.Time      `                                      json:"created_at"`
+	UpdatedAt time.Time      `                                      json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index"                          json:"-"`
+}
+
+// BeforeCreate sets a random UUID if the ID is not already set.
+func (e *[[.Pascal]]) BeforeCreate(_ *gorm.DB) error {
+	if e.ID == uuid.Nil {
+		e.ID = uuid.New()
+	}
+	return nil
+}
+
+// TableName overrides GORM's default table naming.
+func ([[.Pascal]]) TableName() string { return "[[.Table]]" }

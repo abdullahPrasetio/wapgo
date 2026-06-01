@@ -1,0 +1,63 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+
+	"[[.Module]]/internal/domain/entity"
+	domainrepo "[[.Module]]/internal/domain/repository"
+)
+
+type [[.Camel]]Repository struct {
+	db *gorm.DB
+}
+
+// New[[.Pascal]]Repository creates a Postgres-backed [[.Pascal]]Repository.
+func New[[.Pascal]]Repository(db *gorm.DB) domainrepo.[[.Pascal]]Repository {
+	return &[[.Camel]]Repository{db: db}
+}
+
+func (r *[[.Camel]]Repository) FindByID(ctx context.Context, id uuid.UUID) (*entity.[[.Pascal]], error) {
+	var e entity.[[.Pascal]]
+	result := r.db.WithContext(ctx).First(&e, "id = ?", id)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("find [[.Snake]] by id: %w", result.Error)
+	}
+	return &e, nil
+}
+
+func (r *[[.Camel]]Repository) FindAll(ctx context.Context) ([]*entity.[[.Pascal]], error) {
+	var items []*entity.[[.Pascal]]
+	if err := r.db.WithContext(ctx).Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("find all [[.Table]]: %w", err)
+	}
+	return items, nil
+}
+
+func (r *[[.Camel]]Repository) Create(ctx context.Context, e *entity.[[.Pascal]]) error {
+	if err := r.db.WithContext(ctx).Create(e).Error; err != nil {
+		return fmt.Errorf("create [[.Snake]]: %w", err)
+	}
+	return nil
+}
+
+func (r *[[.Camel]]Repository) Update(ctx context.Context, e *entity.[[.Pascal]]) error {
+	if err := r.db.WithContext(ctx).Save(e).Error; err != nil {
+		return fmt.Errorf("update [[.Snake]]: %w", err)
+	}
+	return nil
+}
+
+func (r *[[.Camel]]Repository) Delete(ctx context.Context, id uuid.UUID) error {
+	if err := r.db.WithContext(ctx).Delete(&entity.[[.Pascal]]{}, "id = ?", id).Error; err != nil {
+		return fmt.Errorf("delete [[.Snake]]: %w", err)
+	}
+	return nil
+}

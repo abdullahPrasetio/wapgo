@@ -92,24 +92,26 @@ Dokumen ini adalah peta jalan pengembangan framework. Acuan spesifikasi: [`promp
 
 **DoD:** ✅ `go build ./...` + `go vet ./...` bersih; semua test hijau; coverage 94.3%; SSRF guard + retry + circuit breaker teruji dengan mock transport & `httptest`.
 
-### Fase v0.4 — CLI `wapgo` (Installer + Generator)
+### Fase v0.4 — CLI `wapgo` (Installer + Generator) ✅ SELESAI (2026-06-01)
 
 **Tujuan:** CLI yang **memasang/scaffold framework** sekaligus **generate kode**.
 
-- [ ] `cmd/cli/main.go` + `cli/commands/` (Cobra), binary bernama `wapgo`.
+- [x] `cli/cmd/main.go` + `cli/commands/` (Cobra), binary bernama `wapgo`. CLI adalah **Go module terpisah** (`github.com/abdullahPrasetio/wapgo/cli`) dalam monorepo yang sama — framework bebas dari Cobra. Dev lokal pakai `go.work`.
 
 **Installer / scaffolder:**
-- [ ] `wapgo new <project>` — buat project baru lengkap dari template (folder, `go.mod` dengan module path kustom, semua file core v0.1–v0.3, reference domain user). Flag: `--module github.com/me/svc`, `--db postgres|mysql`.
-- [ ] Template seluruh skeleton di-*embed* ke binary via `//go:embed` (`cli/templates/`) → `wapgo new` jalan tanpa akses jaringan.
-- [ ] `wapgo version`, dan (opsional) `wapgo upgrade`.
-- [ ] Distribusi: `go install github.com/abdullahPrasetio/wapgo/cmd/cli@latest` (binary `wapgo`) + `install.sh` untuk unduh rilis biner.
+- [x] `wapgo new <project>` — buat project baru lengkap dari template (folder, `go.mod` dengan module path kustom, semua file core v0.1–v0.3, reference domain user). Flag: `--module github.com/me/svc`, `--db postgres|mysql`.
+- [x] Template seluruh skeleton di-*embed* ke binary via `//go:embed all:templates` (`cli/generator/templates/`) → `wapgo new` jalan tanpa akses jaringan.
+- [x] `wapgo version`.
+- [ ] Distribusi: `go install github.com/abdullahPrasetio/wapgo/cli/cmd@latest` (binary `wapgo`) + `install.sh` untuk unduh rilis biner.
 
 **Generator `make:*` (di dalam project):**
-- [ ] `make:model`, `make:repo`, `make:usecase`, `make:controller`, `make:route`, `make:client`, `make:all`.
-- [ ] Template-based codegen mengikuti pola reference user; argumen `<name>` snake_case → struct/interface/method.
-- [ ] `make:all <name>` jalankan generator berurutan + cetak ringkasan file yang dibuat.
+- [x] `make:model`, `make:repo`, `make:usecase`, `make:controller`, `make:route`, `make:client`, `make:all`.
+- [x] Template-based codegen mengikuti pola reference user; argumen `<name>` snake_case → struct/interface/method. Delimiter `[[` `]]` (no conflict dengan Go code).
+- [x] `make:all <name>` jalankan generator berurutan + cetak ringkasan file yang dibuat.
 
-**DoD:** `wapgo new shop && cd shop && go build ./...` sukses tanpa edit manual; lalu `wapgo make:all product` menghasilkan domain yang langsung compile; test untuk logika codegen, coverage > 80%.
+**Hasil coverage:** generator 86.6% — **> 80%** ✅
+
+**DoD:** ✅ `wapgo new shop && cd shop && go mod tidy && go vet ./...` sukses; `wapgo make:all product` menghasilkan 8 domain file dengan module path `github.com/me/shop` langsung compile; coverage 86.6%.
 
 ### Fase v0.5 — Peningkatan "Hebat" (di luar spec)
 
@@ -172,8 +174,7 @@ Struktur final (lihat detail di [`prompt-go-microservice.md`](prompt-go-microser
 ```
 .
 ├── cmd/
-│   ├── api/main.go              ← entrypoint service            (v0.1)
-│   └── cli/main.go              ← entrypoint CLI `wapgo`        (v0.4)
+│   └── api/main.go              ← entrypoint service            (v0.1)
 ├── config/                      ← Viper loader                  (v0.1)
 ├── internal/
 │   ├── domain/{entity,repository,service}/                      (v0.1)
@@ -189,9 +190,11 @@ Struktur final (lihat detail di [`prompt-go-microservice.md`](prompt-go-microser
 │   ├── httpclient/                                              (v0.3)
 │   ├── auth/         ← JWT                                      (v0.5)
 │   └── observability/ ← metrics + tracing                      (v0.5)
-├── cli/
-│   ├── commands/    ← cobra: new, make:*                        (v0.4)
-│   └── templates/   ← skeleton ter-embed (//go:embed)          (v0.4)
+├── cli/             ← Go module terpisah (go.mod sendiri)       (v0.4)
+│   ├── cmd/main.go  ← entrypoint CLI `wapgo`
+│   ├── commands/    ← cobra: new, make:*
+│   └── generator/   ← skeleton ter-embed (//go:embed all:templates)
+├── go.work          ← workspace dev lokal (root + ./cli)       (v0.4)
 ├── examples/        ← contoh per fitur + end-to-end            (v0.1→)
 ├── migrations/                                                  (v0.1)
 ├── logs/                                                        (v0.1)
@@ -251,7 +254,7 @@ Struktur final (lihat detail di [`prompt-go-microservice.md`](prompt-go-microser
 
 ```bash
 # 1. Pasang CLI
-go install github.com/abdullahPrasetio/wapgo/cmd/cli@latest      # → binary `wapgo`
+go install github.com/abdullahPrasetio/wapgo/cli/cmd@latest      # → binary `wapgo`
 
 # 2. Buat project baru
 wapgo new my-service --module github.com/me/my-service

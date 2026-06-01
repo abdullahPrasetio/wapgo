@@ -1,0 +1,53 @@
+package httpclient
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"[[.Module]]/internal/domain/entity"
+)
+
+// Err[[.Pascal]]NotFound is returned when the remote service returns HTTP 404.
+var Err[[.Pascal]]NotFound = errors.New("[[.Snake]] not found")
+
+// [[.Pascal]]Client implements domain/service.External[[.Pascal]]Service by calling the
+// remote [[.Snake]] microservice over HTTP.
+type [[.Pascal]]Client struct {
+	client  *Client
+	baseURL string
+}
+
+// New[[.Pascal]]Client creates a [[.Pascal]]Client pointing at baseURL (<NAME>_SERVICE_URL config key).
+func New[[.Pascal]]Client(baseURL string, opts Options) *[[.Pascal]]Client {
+	return &[[.Pascal]]Client{client: New(opts), baseURL: baseURL}
+}
+
+// Get[[.Pascal]] fetches a single [[.Snake]] by ID from the remote [[.Snake]] service.
+func (c *[[.Pascal]]Client) Get[[.Pascal]](ctx context.Context, id string) (*entity.[[.Pascal]], error) {
+	url := fmt.Sprintf("%s/[[.Table]]/%s", c.baseURL, id)
+
+	resp, body, err := c.client.Get(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("[[.Snake]]_client: get [[.Snake]] %s: %w", id, err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// handled below
+	case http.StatusNotFound:
+		return nil, Err[[.Pascal]]NotFound
+	default:
+		return nil, fmt.Errorf("[[.Snake]]_client: unexpected status %d for [[.Snake]] %s", resp.StatusCode, id)
+	}
+
+	var envelope struct {
+		Data entity.[[.Pascal]] `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("[[.Snake]]_client: decode response: %w", err)
+	}
+	return &envelope.Data, nil
+}

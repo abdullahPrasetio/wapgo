@@ -1,0 +1,127 @@
+package usecase
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+
+	"[[.Module]]/internal/domain/entity"
+	domainrepo "[[.Module]]/internal/domain/repository"
+)
+
+// --- DTOs ---
+
+type Create[[.Pascal]]Request struct {
+	// TODO: add fields and validate tags
+}
+
+type Update[[.Pascal]]Request struct {
+	// TODO: add fields and validate tags
+}
+
+// --- Interface ---
+
+// [[.Pascal]]UseCase defines business operations on the [[.Snake]] domain.
+type [[.Pascal]]UseCase interface {
+	Get[[.Pascal]](ctx context.Context, id string) (*entity.[[.Pascal]], error)
+	List[[.Pascal]]s(ctx context.Context) ([]*entity.[[.Pascal]], error)
+	Create[[.Pascal]](ctx context.Context, req *Create[[.Pascal]]Request) (*entity.[[.Pascal]], error)
+	Update[[.Pascal]](ctx context.Context, id string, req *Update[[.Pascal]]Request) (*entity.[[.Pascal]], error)
+	Delete[[.Pascal]](ctx context.Context, id string) error
+}
+
+// --- Implementation ---
+
+type [[.Camel]]UseCase struct {
+	repo domainrepo.[[.Pascal]]Repository
+}
+
+// New[[.Pascal]]UseCase creates a [[.Pascal]]UseCase with required dependencies.
+func New[[.Pascal]]UseCase(repo domainrepo.[[.Pascal]]Repository) [[.Pascal]]UseCase {
+	return &[[.Camel]]UseCase{repo: repo}
+}
+
+func (u *[[.Camel]]UseCase) Get[[.Pascal]](ctx context.Context, id string) (*entity.[[.Pascal]], error) {
+	uid, err := parse[[.Pascal]]UUID(id)
+	if err != nil {
+		return nil, err
+	}
+	e, err := u.repo.FindByID(ctx, uid)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, Err[[.Pascal]]NotFound
+		}
+		return nil, fmt.Errorf("get [[.Snake]]: %w", err)
+	}
+	return e, nil
+}
+
+func (u *[[.Camel]]UseCase) List[[.Pascal]]s(ctx context.Context) ([]*entity.[[.Pascal]], error) {
+	items, err := u.repo.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list [[.Table]]: %w", err)
+	}
+	return items, nil
+}
+
+func (u *[[.Camel]]UseCase) Create[[.Pascal]](ctx context.Context, req *Create[[.Pascal]]Request) (*entity.[[.Pascal]], error) {
+	e := &entity.[[.Pascal]]{}
+	if err := u.repo.Create(ctx, e); err != nil {
+		return nil, fmt.Errorf("create [[.Snake]]: %w", err)
+	}
+	return e, nil
+}
+
+func (u *[[.Camel]]UseCase) Update[[.Pascal]](ctx context.Context, id string, req *Update[[.Pascal]]Request) (*entity.[[.Pascal]], error) {
+	uid, err := parse[[.Pascal]]UUID(id)
+	if err != nil {
+		return nil, err
+	}
+	e, err := u.repo.FindByID(ctx, uid)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, Err[[.Pascal]]NotFound
+		}
+		return nil, fmt.Errorf("find [[.Snake]]: %w", err)
+	}
+	// TODO: apply req fields to e
+	if err := u.repo.Update(ctx, e); err != nil {
+		return nil, fmt.Errorf("update [[.Snake]]: %w", err)
+	}
+	return e, nil
+}
+
+func (u *[[.Camel]]UseCase) Delete[[.Pascal]](ctx context.Context, id string) error {
+	uid, err := parse[[.Pascal]]UUID(id)
+	if err != nil {
+		return err
+	}
+	if _, err := u.repo.FindByID(ctx, uid); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return Err[[.Pascal]]NotFound
+		}
+		return fmt.Errorf("find [[.Snake]]: %w", err)
+	}
+	if err := u.repo.Delete(ctx, uid); err != nil {
+		return fmt.Errorf("delete [[.Snake]]: %w", err)
+	}
+	return nil
+}
+
+// --- Sentinel errors ---
+
+var (
+	Err[[.Pascal]]NotFound    = errors.New("[[.Snake]] not found")
+	Err[[.Pascal]]InvalidUUID = errors.New("invalid [[.Snake]] id format")
+)
+
+func parse[[.Pascal]]UUID(id string) (uuid.UUID, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return uuid.Nil, Err[[.Pascal]]InvalidUUID
+	}
+	return uid, nil
+}
