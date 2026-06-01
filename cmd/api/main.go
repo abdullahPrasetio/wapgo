@@ -1,0 +1,160 @@
+package main
+
+import (
+	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
+
+	"github.com/abdullahPrasetio/wapgo/config"
+	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/handler"
+	mw "github.com/abdullahPrasetio/wapgo/internal/delivery/http/middleware"
+	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/route"
+	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
+	pgRepo "github.com/abdullahPrasetio/wapgo/internal/repository/postgres"
+	"github.com/abdullahPrasetio/wapgo/internal/usecase"
+	"github.com/abdullahPrasetio/wapgo/pkg/database"
+	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
+	"github.com/abdullahPrasetio/wapgo/pkg/validator"
+)
+
+const version = "0.1.0"
+
+func main() {
+	// ── Config ───────────────────────────────────────────────────────────────
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load config")
+	}
+
+	// ── Logger ───────────────────────────────────────────────────────────────
+	applogger.Setup(cfg.App.Env, cfg.Log.Level, cfg.Log.FilePath, cfg.Log.ToFile, cfg.App.Name)
+	log.Info().Str("version", version).Str("env", cfg.App.Env).Msg("starting wapgo")
+
+	// ── Database ─────────────────────────────────────────────────────────────
+	db, err := database.NewConnection(&cfg.DB)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to connect to database")
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to get underlying sql.DB")
+	}
+	log.Info().Str("driver", cfg.DB.Driver).Msg("database connected")
+
+	if cfg.DB.AutoMigrate {
+		if err := db.AutoMigrate(&entity.User{}); err != nil {
+			log.Fatal().Err(err).Msg("auto-migrate failed")
+		}
+		log.Info().Msg("auto-migrate complete")
+	}
+
+	// ── Redis ────────────────────────────────────────────────────────────────
+	redisClient := newRedisClient(&cfg.Redis)
+	log.Info().Msg("redis connected")
+
+	// ── Repositories ─────────────────────────────────────────────────────────
+	userRepo := pgRepo.NewUserRepository(db)
+
+	// ── Usecases ─────────────────────────────────────────────────────────────
+	userUC := usecase.NewUserUseCase(userRepo)
+
+	// ── Validators ───────────────────────────────────────────────────────────
+	val := validator.New()
+
+	// ── Handlers ─────────────────────────────────────────────────────────────
+	startTime := time.Now()
+	userHandler := handler.NewUserHandler(userUC, val)
+	healthHandler := handler.NewHealthHandler(sqlDB, redisClient, startTime, version)
+
+	// ── Fiber app ────────────────────────────────────────────────────────────
+	app := fiber.New(fiber.Config{
+		AppName:               cfg.App.Name,
+		BodyLimit:             4 * 1024 * 1024, // 4 MB
+		ReadTimeout:           10 * time.Second,
+		WriteTimeout:          10 * time.Second,
+		IdleTimeout:           120 * time.Second,
+		DisableStartupMessage: true,
+		// Global error handler — never leak internal details
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			code := fiber.StatusInternalServerError
+			if e, ok := err.(*fiber.Error); ok {
+				code = e.Code
+			}
+			return c.Status(code).JSON(fiber.Map{
+				"status":  false,
+				"message": http.StatusText(code),
+			})
+		},
+	})
+
+	// Middleware stack (order matters)
+	app.Use(mw.Recover())
+	app.Use(mw.RequestID())
+	app.Use(mw.SecurityHeaders())
+	app.Use(mw.RateLimiter())
+	app.Use(mw.RequestLogger())
+	app.Use(mw.CORS(cfg.App.CORSAllowedOrigins))
+
+	// Routes
+	route.Setup(app, userHandler, healthHandler)
+
+	// ── Start server ─────────────────────────────────────────────────────────
+	go func() {
+		addr := ":" + cfg.App.Port
+		log.Info().Str("addr", addr).Msg("http server listening")
+		if err := app.Listen(addr); err != nil {
+			log.Fatal().Err(err).Msg("http server error")
+		}
+	}()
+
+	// ── Graceful shutdown ─────────────────────────────────────────────────────
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	log.Info().Msg("shutdown signal received")
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := app.ShutdownWithContext(shutCtx); err != nil {
+		log.Error().Err(err).Msg("http server forced shutdown")
+	}
+	log.Info().Msg("http server stopped")
+
+	if err := redisClient.Close(); err != nil {
+		log.Error().Err(err).Msg("redis close error")
+	}
+	log.Info().Msg("redis closed")
+
+	if err := sqlDB.Close(); err != nil {
+		log.Error().Err(err).Msg("database close error")
+	}
+	log.Info().Msg("database closed")
+
+	log.Info().Msg("shutdown complete")
+}
+
+func newRedisClient(cfg *config.RedisConfig) *redis.Client {
+	opts, err := redis.ParseURL(cfg.URL)
+	if err != nil {
+		// Fallback to manual config if URL is malformed
+		opts = &redis.Options{
+			Addr: "localhost:6379",
+		}
+	}
+	if cfg.Password != "" {
+		opts.Password = cfg.Password
+	}
+	if cfg.DB > 0 {
+		opts.DB = cfg.DB
+	}
+	return redis.NewClient(opts)
+}
