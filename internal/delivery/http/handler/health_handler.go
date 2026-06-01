@@ -9,15 +9,21 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Checker is a health probe function.
+// It must return "ok", "down", or "not_configured".
+type Checker func(ctx context.Context) string
+
 // HealthHandler checks the liveness of downstream dependencies.
 type HealthHandler struct {
 	db          *sql.DB
 	redisClient *redis.Client
+	extras      map[string]Checker // additional probes (kafka, rabbitmq, …)
 	startTime   time.Time
 	version     string
 }
 
-// NewHealthHandler creates a HealthHandler.
+// NewHealthHandler creates a HealthHandler with DB and Redis probes.
+// Additional probes can be registered afterwards via AddChecker.
 func NewHealthHandler(db *sql.DB, rc *redis.Client, startTime time.Time, version string) *HealthHandler {
 	return &HealthHandler{
 		db:          db,
@@ -27,20 +33,20 @@ func NewHealthHandler(db *sql.DB, rc *redis.Client, startTime time.Time, version
 	}
 }
 
-// Check handles GET /health.
-// Returns HTTP 200 when all services are up, HTTP 503 when any is down.
-func (h *HealthHandler) Check(c *fiber.Ctx) error {
-	type serviceStatus struct {
-		Database string `json:"database"`
-		Redis    string `json:"redis"`
-		Kafka    string `json:"kafka"`
-		RabbitMQ string `json:"rabbitmq"`
+// AddChecker registers a named health probe. Returns h for chaining.
+func (h *HealthHandler) AddChecker(name string, fn Checker) *HealthHandler {
+	if h.extras == nil {
+		h.extras = make(map[string]Checker)
 	}
+	h.extras[name] = fn
+	return h
+}
 
-	status := serviceStatus{
-		Kafka:    "not_configured",
-		RabbitMQ: "not_configured",
-	}
+// Check handles GET /health.
+// Returns HTTP 200 when all probes report "ok" or "not_configured",
+// HTTP 503 when any probe reports "down".
+func (h *HealthHandler) Check(c *fiber.Ctx) error {
+	services := make(map[string]string)
 	overall := "ok"
 	httpCode := fiber.StatusOK
 
@@ -48,27 +54,37 @@ func (h *HealthHandler) Check(c *fiber.Ctx) error {
 	dbCtx, dbCancel := context.WithTimeout(c.UserContext(), 2*time.Second)
 	defer dbCancel()
 	if err := h.db.PingContext(dbCtx); err != nil {
-		status.Database = "down"
+		services["database"] = "down"
 		overall = "degraded"
 		httpCode = fiber.StatusServiceUnavailable
 	} else {
-		status.Database = "ok"
+		services["database"] = "ok"
 	}
 
 	// Redis ping (2-second budget)
 	redisCtx, redisCancel := context.WithTimeout(c.UserContext(), 2*time.Second)
 	defer redisCancel()
 	if err := h.redisClient.Ping(redisCtx).Err(); err != nil {
-		status.Redis = "down"
+		services["redis"] = "down"
 		overall = "degraded"
 		httpCode = fiber.StatusServiceUnavailable
 	} else {
-		status.Redis = "ok"
+		services["redis"] = "ok"
+	}
+
+	// Extra probes (kafka, rabbitmq, …)
+	for name, check := range h.extras {
+		result := check(c.UserContext())
+		services[name] = result
+		if result == "down" {
+			overall = "degraded"
+			httpCode = fiber.StatusServiceUnavailable
+		}
 	}
 
 	return c.Status(httpCode).JSON(fiber.Map{
 		"status":   overall,
-		"services": status,
+		"services": services,
 		"version":  h.version,
 		"uptime":   time.Since(h.startTime).Round(time.Second).String(),
 	})

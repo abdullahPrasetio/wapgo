@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"context"
 	"database/sql"
 	"net/http/httptest"
 	"testing"
@@ -21,44 +22,43 @@ func newHealthApp(h *handler.HealthHandler) *fiber.App {
 	return app
 }
 
-// TestHealth_Degraded_BothDown verifies that the endpoint returns 503
-// when neither DB nor Redis is reachable (connection-refused ports).
-func TestHealth_Degraded_BothDown(t *testing.T) {
-	// sql.Open does not dial until Ping — use a connection-refused port so
-	// PingContext fails immediately (ECONNREFUSED).
-	db, err := sql.Open("pgx",
-		"postgresql://user:pass@127.0.0.1:59997/test?sslmode=disable&connect_timeout=1",
+// openBrokenDB/RC open connections to ports guaranteed to refuse connections.
+func openBrokenDB(port string) *sql.DB {
+	db, _ := sql.Open("pgx",
+		"postgresql://user:pass@127.0.0.1:"+port+"/test?sslmode=disable&connect_timeout=1",
 	)
-	require.NoError(t, err)
-	defer db.Close()
+	return db
+}
 
-	rc := redis.NewClient(&redis.Options{
-		Addr:        "127.0.0.1:59996",
+func openBrokenRC(port string) *redis.Client {
+	return redis.NewClient(&redis.Options{
+		Addr:        "127.0.0.1:" + port,
 		DialTimeout: 300 * time.Millisecond,
 	})
+}
+
+// TestHealth_Degraded_BothDown verifies 503 when neither DB nor Redis is reachable.
+func TestHealth_Degraded_BothDown(t *testing.T) {
+	db := openBrokenDB("59997")
+	defer db.Close()
+	rc := openBrokenRC("59996")
 	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.1.0")
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0")
 	req := httptest.NewRequest("GET", "/health", nil)
-	resp, err := newHealthApp(h).Test(req, 8000) // generous timeout for CI
+	resp, err := newHealthApp(h).Test(req, 8000)
 	require.NoError(t, err)
 	assert.Equal(t, fiber.StatusServiceUnavailable, resp.StatusCode)
 }
 
-// TestHealth_Fields verifies that the response body contains expected keys.
+// TestHealth_ResponseFields verifies that the response body contains expected top-level keys.
 func TestHealth_ResponseFields(t *testing.T) {
-	db, _ := sql.Open("pgx",
-		"postgresql://user:pass@127.0.0.1:59995/test?sslmode=disable&connect_timeout=1",
-	)
+	db := openBrokenDB("59995")
 	defer db.Close()
-
-	rc := redis.NewClient(&redis.Options{
-		Addr:        "127.0.0.1:59994",
-		DialTimeout: 300 * time.Millisecond,
-	})
+	rc := openBrokenRC("59994")
 	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.1.0")
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0")
 	req := httptest.NewRequest("GET", "/health", nil)
 	resp, err := newHealthApp(h).Test(req, 8000)
 	require.NoError(t, err)
@@ -68,4 +68,66 @@ func TestHealth_ResponseFields(t *testing.T) {
 	assert.Contains(t, body, "services")
 	assert.Contains(t, body, "version")
 	assert.Contains(t, body, "uptime")
+}
+
+// TestHealth_AddChecker_Down verifies that a "down" extra checker causes 503.
+func TestHealth_AddChecker_Down(t *testing.T) {
+	db := openBrokenDB("59987")
+	defer db.Close()
+	rc := openBrokenRC("59986")
+	defer rc.Close()
+
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0")
+	h.AddChecker("kafka", func(_ context.Context) string { return "down" })
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	resp, err := newHealthApp(h).Test(req, 8000)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusServiceUnavailable, resp.StatusCode)
+
+	body := parseBody(t, resp)
+	services, ok := body["services"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "down", services["kafka"])
+}
+
+// TestHealth_AddChecker_NotConfigured verifies "not_configured" does not degrade overall status on its own.
+func TestHealth_AddChecker_NotConfigured(t *testing.T) {
+	db := openBrokenDB("59985")
+	defer db.Close()
+	rc := openBrokenRC("59984")
+	defer rc.Close()
+
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0")
+	h.AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	resp, err := newHealthApp(h).Test(req, 8000)
+	require.NoError(t, err)
+
+	body := parseBody(t, resp)
+	services, ok := body["services"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "not_configured", services["rabbitmq"])
+}
+
+// TestHealth_AddChecker_Chaining verifies the fluent AddChecker API.
+func TestHealth_AddChecker_Chaining(t *testing.T) {
+	db := openBrokenDB("59983")
+	defer db.Close()
+	rc := openBrokenRC("59982")
+	defer rc.Close()
+
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0").
+		AddChecker("kafka", func(_ context.Context) string { return "not_configured" }).
+		AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	resp, err := newHealthApp(h).Test(req, 8000)
+	require.NoError(t, err)
+
+	body := parseBody(t, resp)
+	services := body["services"].(map[string]interface{})
+	assert.Equal(t, "not_configured", services["kafka"])
+	assert.Equal(t, "not_configured", services["rabbitmq"])
 }

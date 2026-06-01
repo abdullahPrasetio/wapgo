@@ -21,10 +21,12 @@ import (
 	"github.com/abdullahPrasetio/wapgo/internal/usecase"
 	"github.com/abdullahPrasetio/wapgo/pkg/database"
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
+	kafkamsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
+	rabbitmqmsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/rabbitmq"
 	"github.com/abdullahPrasetio/wapgo/pkg/validator"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	// ── Config ───────────────────────────────────────────────────────────────
@@ -73,6 +75,20 @@ func main() {
 	userHandler := handler.NewUserHandler(userUC, val)
 	healthHandler := handler.NewHealthHandler(sqlDB, redisClient, startTime, version)
 
+	// Register Kafka health checker when brokers are configured.
+	if cfg.Kafka.Brokers != "" {
+		healthHandler.AddChecker("kafka", kafkamsg.HealthCheck(cfg.Kafka.Brokers))
+	} else {
+		healthHandler.AddChecker("kafka", func(_ context.Context) string { return "not_configured" })
+	}
+
+	// Register RabbitMQ health checker when DSN is configured.
+	if cfg.RabbitMQ.DSN != "" {
+		healthHandler.AddChecker("rabbitmq", rabbitmqmsg.HealthCheck(cfg.RabbitMQ.DSN))
+	} else {
+		healthHandler.AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
+	}
+
 	// ── Fiber app ────────────────────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
 		AppName:               cfg.App.Name,
@@ -81,7 +97,6 @@ func main() {
 		WriteTimeout:          10 * time.Second,
 		IdleTimeout:           120 * time.Second,
 		DisableStartupMessage: true,
-		// Global error handler — never leak internal details
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {
@@ -145,10 +160,7 @@ func main() {
 func newRedisClient(cfg *config.RedisConfig) *redis.Client {
 	opts, err := redis.ParseURL(cfg.URL)
 	if err != nil {
-		// Fallback to manual config if URL is malformed
-		opts = &redis.Options{
-			Addr: "localhost:6379",
-		}
+		opts = &redis.Options{Addr: "localhost:6379"}
 	}
 	if cfg.Password != "" {
 		opts.Password = cfg.Password
