@@ -20,7 +20,16 @@ func newApp(handler fiber.Handler) *fiber.App {
 	return app
 }
 
-func parseBody(t *testing.T, resp *http.Response) map[string]interface{} {
+func do(t *testing.T, app *fiber.App) (int, map[string]interface{}) {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/test", nil)
+	resp, err := app.Test(req, -1)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	return resp.StatusCode, mustParseBody(t, resp)
+}
+
+func mustParseBody(t *testing.T, resp *http.Response) map[string]interface{} {
 	t.Helper()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -33,69 +42,82 @@ func TestSuccess(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
 		return response.Success(c, "ok", fiber.Map{"key": "val"})
 	})
-	req := httptest.NewRequest("GET", "/test", nil)
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	assert.Equal(t, 200, resp.StatusCode)
-	body := parseBody(t, resp)
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusOK, code)
 	assert.Equal(t, true, body["status"])
 	assert.Equal(t, "ok", body["message"])
+	assert.NotNil(t, body["data"])
+}
+
+func TestSuccess_NilData(t *testing.T) {
+	app := newApp(func(c *fiber.Ctx) error {
+		return response.Success(c, "deleted", nil)
+	})
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusOK, code)
+	assert.Equal(t, true, body["status"])
+	assert.Nil(t, body["data"])
 }
 
 func TestCreated(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
-		return response.Created(c, "created", nil)
+		return response.Created(c, "user created", fiber.Map{"id": "abc"})
 	})
-	req := httptest.NewRequest("GET", "/test", nil)
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	assert.Equal(t, 201, resp.StatusCode)
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusCreated, code)
+	assert.Equal(t, true, body["status"])
+	assert.Equal(t, "user created", body["message"])
+	assert.NotNil(t, body["data"])
 }
 
 func TestError(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
-		return response.Error(c, 400, "bad input")
+		return response.Error(c, fiber.StatusConflict, "email conflict")
 	})
-	req := httptest.NewRequest("GET", "/test", nil)
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	assert.Equal(t, 400, resp.StatusCode)
-	body := parseBody(t, resp)
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusConflict, code)
 	assert.Equal(t, false, body["status"])
+	assert.Equal(t, "email conflict", body["message"])
+	assert.Nil(t, body["data"])
 }
 
 func TestBadRequest(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
-		return response.BadRequest(c, "invalid")
+		return response.BadRequest(c, "invalid body")
 	})
-	req := httptest.NewRequest("GET", "/test", nil)
-	resp, _ := app.Test(req)
-	assert.Equal(t, 400, resp.StatusCode)
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusBadRequest, code)
+	assert.Equal(t, false, body["status"])
+	assert.Equal(t, "invalid body", body["message"])
 }
 
 func TestNotFound(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
-		return response.NotFound(c, "gone")
+		return response.NotFound(c, "user not found")
 	})
-	req := httptest.NewRequest("GET", "/test", nil)
-	resp, _ := app.Test(req)
-	assert.Equal(t, 404, resp.StatusCode)
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusNotFound, code)
+	assert.Equal(t, false, body["status"])
+	assert.Equal(t, "user not found", body["message"])
 }
 
 func TestInternalError(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
 		return response.InternalError(c)
 	})
-	req := httptest.NewRequest("GET", "/test", nil)
-	resp, _ := app.Test(req)
-	assert.Equal(t, 500, resp.StatusCode)
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusInternalServerError, code)
+	assert.Equal(t, false, body["status"])
+	// Must never expose internal details — message is always generic
+	assert.Equal(t, "internal server error", body["message"])
 }
 
 func TestUnauthorized(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
 		return response.Unauthorized(c)
 	})
-	req := httptest.NewRequest("GET", "/test", nil)
-	resp, _ := app.Test(req)
-	assert.Equal(t, 401, resp.StatusCode)
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusUnauthorized, code)
+	assert.Equal(t, false, body["status"])
+	assert.Equal(t, "unauthorized", body["message"])
 }

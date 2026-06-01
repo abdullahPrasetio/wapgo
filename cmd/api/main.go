@@ -17,7 +17,7 @@ import (
 	mw "github.com/abdullahPrasetio/wapgo/internal/delivery/http/middleware"
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/route"
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
-	pgRepo "github.com/abdullahPrasetio/wapgo/internal/repository/postgres"
+	dbrepo "github.com/abdullahPrasetio/wapgo/internal/repository/db"
 	"github.com/abdullahPrasetio/wapgo/internal/usecase"
 	"github.com/abdullahPrasetio/wapgo/pkg/database"
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
@@ -78,7 +78,7 @@ func main() {
 	log.Info().Msg("redis connected")
 
 	// ── Repositories ─────────────────────────────────────────────────────────
-	userRepo := pgRepo.NewUserRepository(db)
+	userRepo := dbrepo.NewUserRepository(db)
 
 	// ── Usecases ─────────────────────────────────────────────────────────────
 	userUC := usecase.NewUserUseCase(userRepo)

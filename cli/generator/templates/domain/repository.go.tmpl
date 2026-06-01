@@ -1,4 +1,4 @@
-package postgres
+package db
 
 import (
 	"context"
@@ -16,7 +16,7 @@ type [[.Camel]]Repository struct {
 	db *gorm.DB
 }
 
-// New[[.Pascal]]Repository creates a Postgres-backed [[.Pascal]]Repository.
+// New[[.Pascal]]Repository creates a GORM-backed [[.Pascal]]Repository.
 func New[[.Pascal]]Repository(db *gorm.DB) domainrepo.[[.Pascal]]Repository {
 	return &[[.Camel]]Repository{db: db}
 }

@@ -142,9 +142,9 @@ func Load() (*Config, error) {
 	v.SetDefault("app.port", "8080")
 	v.SetDefault("app.name", "wapgo-service")
 	v.SetDefault("app.cors_allowed_origins", "http://localhost:3000")
-	v.SetDefault("db.driver", "postgres")
+	v.SetDefault("db.driver", "mysql")
 	v.SetDefault("db.host", "localhost")
-	v.SetDefault("db.port", "5432")
+	v.SetDefault("db.port", "3306")
 	v.SetDefault("db.max_open_conns", 25)
 	v.SetDefault("db.max_idle_conns", 5)
 	v.SetDefault("db.conn_max_life", "5m")
@@ -158,7 +158,7 @@ func Load() (*Config, error) {
 	v.SetDefault("jwt.issuer", "wapgo-service")
 	v.SetDefault("jwt.audience", "wapgo-api")
 	v.SetDefault("jwt.expiry", "24h")
-	v.SetDefault("observability.provider", "otel")
+	v.SetDefault("observability.provider", "elastic_apm")
 	v.SetDefault("observability.tracing_enabled", false)
 
 	if err := v.ReadInConfig(); err != nil {

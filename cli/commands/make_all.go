@@ -13,7 +13,7 @@ func newMakeAllCmd() *cobra.Command {
 		Long: `Generate every layer for a new domain in one command:
 
   make:model      → entity + domain repository interface
-  make:repo       → Postgres repository implementation
+  make:repo       → GORM repository implementation (driver-agnostic)
   make:usecase    → usecase interface + implementation
   make:controller → HTTP handler + external service interface
   make:route      → route registration
@@ -31,7 +31,7 @@ Example:
 				fn    func(string) error
 			}{
 				{"model      (entity + repo interface)", runMakeModel},
-				{"repo       (postgres impl)", runMakeRepo},
+				{"repo       (gorm impl)", runMakeRepo},
 				{"usecase    (interface + impl)", runMakeUsecase},
 				{"controller (handler + ext service)", runMakeController},
 				{"route      (route registration)", runMakeRoute},

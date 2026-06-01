@@ -7,7 +7,7 @@
 [![Coverage](https://img.shields.io/badge/coverage-%3E80%25-brightgreen)](https://github.com/abdullahPrasetio/wapgo/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Dokumentasi:** [Developer Guide](GUIDE.md) · [Arsitektur & Konsep](ARCHITECTURE.md) · [Keunggulan](HIGHLIGHTS.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+**Dokumentasi:** [Developer Guide](GUIDE.md) · [Arsitektur & Konsep](ARCHITECTURE.md) · [Keunggulan](HIGHLIGHTS.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 

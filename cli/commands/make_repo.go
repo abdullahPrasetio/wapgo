@@ -12,8 +12,9 @@ import (
 func newMakeRepoCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "make:repo <name>",
-		Short: "Generate Postgres repository implementation",
-		Long: `Generate the Postgres repository implementation for a domain.
+		Short: "Generate GORM repository implementation",
+		Long: `Generate the GORM repository implementation for a domain.
+Driver dipilih via DB_DRIVER env var (mysql / postgres) — kode repository sama untuk keduanya.
 
 Example:
   wapgo make:repo product`,
@@ -33,8 +34,8 @@ func runMakeRepo(name string) error {
 	n := generator.NewNames(name)
 	n.Module = module
 
-	out := filepath.Join("internal", "repository", "postgres", n.Snake+"_repository.go")
-	content, err := generator.DomainTemplateContent(generator.TemplateFS, "postgres_repository.go.tmpl")
+	out := filepath.Join("internal", "repository", "db", n.Snake+"_repository.go")
+	content, err := generator.DomainTemplateContent(generator.TemplateFS, "repository.go.tmpl")
 	if err != nil {
 		return err
 	}

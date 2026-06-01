@@ -10,8 +10,8 @@
 //
 //	usecase  ──depends on──▶  domain/repository (interface)
 //	                                  ▲
-//	repository/postgres  ──implements─┘
-//	repository/redis     ──implements─┘
+//	repository/db    ──implements─┘
+//	repository/redis ──implements─┘
 //
 // Dengan pola ini, usecase bisa di-test tanpa database nyata — cukup buat
 // struct dummy yang memenuhi interface, lalu inject ke usecase.

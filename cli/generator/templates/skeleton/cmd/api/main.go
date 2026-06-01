@@ -19,7 +19,7 @@ import (
 	mw "github.com/abdullahPrasetio/wapgo/internal/delivery/http/middleware"
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/route"
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
-	pgRepo "github.com/abdullahPrasetio/wapgo/internal/repository/postgres"
+	dbrepo "github.com/abdullahPrasetio/wapgo/internal/repository/db"
 	"github.com/abdullahPrasetio/wapgo/internal/usecase"
 	"github.com/abdullahPrasetio/wapgo/pkg/database"
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
@@ -68,7 +68,7 @@ func main() {
 	redisClient := newRedisClient(&cfg.Redis)
 	obsProvider.InstrumentRedis(redisClient)
 
-	userRepo := pgRepo.NewUserRepository(db)
+	userRepo := dbrepo.NewUserRepository(db)
 	userUC := usecase.NewUserUseCase(userRepo)
 	val := validator.New()
 

@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
-	postgresrepo "github.com/abdullahPrasetio/wapgo/internal/repository/postgres"
+	dbrepo "github.com/abdullahPrasetio/wapgo/internal/repository/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +47,7 @@ func TestPostgresUserRepository(t *testing.T) {
 	// Auto-migrate the users table
 	require.NoError(t, db.AutoMigrate(&entity.User{}))
 
-	repo := postgresrepo.NewUserRepository(db)
+	repo := dbrepo.NewUserRepository(db)
 
 	// ── Create ────────────────────────────────────────────────────────────────
 	t.Run("create and find by id", func(t *testing.T) {
