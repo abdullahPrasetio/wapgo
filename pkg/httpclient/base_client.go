@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sony/gobreaker"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
 )
@@ -117,6 +119,8 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	if auth := AuthorizationFromContext(ctx); auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
+	// Propagate OTel trace context (W3C TraceContext + Baggage) into outgoing headers.
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 	resp, err := c.http.Do(req)
 	if err != nil {

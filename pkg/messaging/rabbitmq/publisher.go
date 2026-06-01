@@ -8,6 +8,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
 
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
 )
@@ -82,15 +83,17 @@ func (p *Publisher) Publish(ctx context.Context, msg Message) error {
 	if rid == "" {
 		rid = applogger.RequestIDFromContext(ctx)
 	}
+	headers := amqp.Table{"x-request-id": rid}
+	// Inject OTel trace context so consumers can continue the distributed trace.
+	otel.GetTextMapPropagator().Inject(ctx, amqpTableCarrier(headers))
+
 	err := p.ch.PublishWithContext(ctx, p.exchange, msg.RoutingKey, false, false,
 		amqp.Publishing{
 			ContentType:  "application/json",
 			DeliveryMode: amqp.Persistent,
 			Timestamp:    time.Now(),
 			Body:         msg.Body,
-			Headers: amqp.Table{
-				"x-request-id": rid,
-			},
+			Headers:      headers,
 		},
 	)
 	if err != nil {

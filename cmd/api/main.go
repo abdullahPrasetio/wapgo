@@ -23,10 +23,11 @@ import (
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
 	kafkamsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
 	rabbitmqmsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/rabbitmq"
+	"github.com/abdullahPrasetio/wapgo/pkg/observability"
 	"github.com/abdullahPrasetio/wapgo/pkg/validator"
 )
 
-const version = "0.2.0"
+const version = "0.5.0"
 
 func main() {
 	// ── Config ───────────────────────────────────────────────────────────────
@@ -38,6 +39,17 @@ func main() {
 	// ── Logger ───────────────────────────────────────────────────────────────
 	applogger.Setup(cfg.App.Env, cfg.Log.Level, cfg.Log.FilePath, cfg.Log.ToFile, cfg.App.Name)
 	log.Info().Str("version", version).Str("env", cfg.App.Env).Msg("starting wapgo")
+
+	// ── OpenTelemetry tracing ─────────────────────────────────────────────────
+	otelShutdown, err := observability.SetupTracing(context.Background(), &observability.TraceConfig{
+		ServiceName:    cfg.App.Name,
+		ServiceVersion: version,
+		OTLPEndpoint:   cfg.Observability.OTLPEndpoint,
+		Enabled:        cfg.Observability.TracingEnabled,
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to setup tracing")
+	}
 
 	// ── Database ─────────────────────────────────────────────────────────────
 	db, err := database.NewConnection(&cfg.DB)
@@ -116,9 +128,11 @@ func main() {
 	app.Use(mw.RateLimiter())
 	app.Use(mw.RequestLogger())
 	app.Use(mw.CORS(cfg.App.CORSAllowedOrigins))
+	app.Use(observability.TracingMiddleware(cfg.App.Name))
+	app.Use(observability.MetricsMiddleware())
 
 	// Routes
-	route.Setup(app, userHandler, healthHandler)
+	route.Setup(app, userHandler, healthHandler, cfg.App.Env)
 
 	// ── Start server ─────────────────────────────────────────────────────────
 	go func() {
@@ -143,6 +157,11 @@ func main() {
 		log.Error().Err(err).Msg("http server forced shutdown")
 	}
 	log.Info().Msg("http server stopped")
+
+	if err := otelShutdown(shutCtx); err != nil {
+		log.Error().Err(err).Msg("otel shutdown error")
+	}
+	log.Info().Msg("otel traces flushed")
 
 	if err := redisClient.Close(); err != nil {
 		log.Error().Err(err).Msg("redis close error")

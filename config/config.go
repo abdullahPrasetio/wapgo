@@ -8,13 +8,29 @@ import (
 )
 
 type Config struct {
-	App      AppConfig      `mapstructure:"app"`
-	DB       DBConfig       `mapstructure:"db"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	Kafka    KafkaConfig    `mapstructure:"kafka"`
-	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
-	Log      LogConfig      `mapstructure:"log"`
-	Services ServiceURLs    `mapstructure:"services"`
+	App          AppConfig          `mapstructure:"app"`
+	DB           DBConfig           `mapstructure:"db"`
+	Redis        RedisConfig        `mapstructure:"redis"`
+	Kafka        KafkaConfig        `mapstructure:"kafka"`
+	RabbitMQ     RabbitMQConfig     `mapstructure:"rabbitmq"`
+	Log          LogConfig          `mapstructure:"log"`
+	Services     ServiceURLs        `mapstructure:"services"`
+	JWT          JWTConfig          `mapstructure:"jwt"`
+	Observability ObservabilityConfig `mapstructure:"observability"`
+}
+
+// JWTConfig holds parameters for HS256 token signing and verification.
+type JWTConfig struct {
+	Secret   string `mapstructure:"secret"`   // JWT_SECRET — must be ≥32 bytes in production
+	Issuer   string `mapstructure:"issuer"`   // JWT_ISSUER
+	Audience string `mapstructure:"audience"` // JWT_AUDIENCE
+	Expiry   string `mapstructure:"expiry"`   // JWT_EXPIRY — Go duration string, e.g. "24h"
+}
+
+// ObservabilityConfig holds OpenTelemetry tracing parameters.
+type ObservabilityConfig struct {
+	TracingEnabled  bool   `mapstructure:"tracing_enabled"`  // OTEL_TRACING_ENABLED
+	OTLPEndpoint    string `mapstructure:"otlp_endpoint"`    // OTEL_EXPORTER_OTLP_ENDPOINT
 }
 
 type AppConfig struct {
@@ -99,8 +115,14 @@ func Load() (*Config, error) {
 		"log.level":                "LOG_LEVEL",
 		"log.to_file":              "LOG_TO_FILE",
 		"log.file_path":            "LOG_FILE_PATH",
-		"services.user_url":        "USER_SERVICE_URL",
-		"services.order_url":       "ORDER_SERVICE_URL",
+		"services.user_url":                "USER_SERVICE_URL",
+		"services.order_url":               "ORDER_SERVICE_URL",
+		"jwt.secret":                        "JWT_SECRET",
+		"jwt.issuer":                        "JWT_ISSUER",
+		"jwt.audience":                      "JWT_AUDIENCE",
+		"jwt.expiry":                        "JWT_EXPIRY",
+		"observability.tracing_enabled":     "OTEL_TRACING_ENABLED",
+		"observability.otlp_endpoint":       "OTEL_EXPORTER_OTLP_ENDPOINT",
 	}
 	for key, env := range bindings {
 		if err := v.BindEnv(key, env); err != nil {
@@ -126,6 +148,10 @@ func Load() (*Config, error) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.to_file", false)
 	v.SetDefault("log.file_path", "logs/app.log")
+	v.SetDefault("jwt.issuer", "wapgo-service")
+	v.SetDefault("jwt.audience", "wapgo-api")
+	v.SetDefault("jwt.expiry", "24h")
+	v.SetDefault("observability.tracing_enabled", false)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

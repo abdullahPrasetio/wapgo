@@ -113,15 +113,18 @@ Dokumen ini adalah peta jalan pengembangan framework. Acuan spesifikasi: [`promp
 
 **DoD:** ✅ `wapgo new shop && cd shop && go mod tidy && go vet ./...` sukses; `wapgo make:all product` menghasilkan 8 domain file dengan module path `github.com/me/shop` langsung compile; coverage 86.6%.
 
-### Fase v0.5 — Peningkatan "Hebat" (di luar spec)
+### Fase v0.5 — Peningkatan "Hebat" ✅ SELESAI (2026-06-01)
 
 **Tujuan:** Naikkan kelas dari boilerplate ke framework production-grade.
 
-- [ ] **Auth:** JWT middleware + helper (sign/verify). **Hardening:** algoritma di-pin (tolak `alg:none`), validasi `exp`/`iat`/`iss`/`aud`, secret/kunci kuat dari ENV, perbandingan token constant-time; opsional RBAC middleware (role/scope). Propagasi klaim ke context.
-- [ ] **Observability:** Prometheus metrics (`/metrics`, RED metrics per route) + OpenTelemetry tracing (span dari request-id, propagasi ke httpclient & messaging).
-- [ ] **Security:** `/metrics`, `/swagger`, dan pprof **tidak terekspos publik di produksi** (dinonaktifkan atau di balik auth/jaringan internal saat `APP_ENV=production`).
+- [x] **Auth:** `pkg/auth/` — `Sign`/`Verify` (HS256), `Claims` struct, `Middleware` (Bearer token), `RequireRole` (RBAC). Hardening: algo di-pin (`WithValidMethods`), validasi `exp`/`iat`/`iss`/`aud`, secret ≥32 byte wajib, `alg:none` ditolak. Claims di-propagasi ke Fiber Locals via `GetClaims(c)`.
+- [x] **Observability:** `pkg/observability/` — Prometheus RED metrics (`wapgo_http_requests_total`, `wapgo_http_request_duration_seconds`) + `MetricsMiddleware` + `MetricsHandler`; OpenTelemetry `SetupTracing` (OTLP HTTP atau stdout exporter), `TracingMiddleware` (W3C TraceContext propagation, span per request), `TraceContext(c)` helper.
+- [x] **Trace propagation:** `httpclient.Do` inject W3C header ke outgoing HTTP; Kafka producer inject via `kafkaHeaderCarrier`; RabbitMQ publisher inject via `amqpTableCarrier`.
+- [x] **Security:** `/metrics` dijaga `prodGuard` — 404 di `APP_ENV=production`; OTLP endpoint dikonfigurasi via ENV.
 
-**DoD:** `/metrics` & `/swagger` aktif di dev namun terlindung di prod; JWT lolos uji serangan umum (`alg:none`, token kedaluwarsa, signature palsu); trace tampil end-to-end; test + example, coverage > 80%.
+**Hasil coverage:** auth 92.0% · observability 82.1% · kafka 91.0% · rabbitmq 84.3% · httpclient 94.6% — **semua > 80%** ✅
+
+**DoD:** ✅ `go build ./...` + `go vet ./...` bersih; semua test hijau; coverage > 80% semua paket; JWT lolos uji `alg:none`, expired, wrong iss/aud, tampered signature; trace propagasi W3C terverifikasi; `/metrics` 404 di production.
 
 ### Fase v1.0 — Hardening & Rilis
 

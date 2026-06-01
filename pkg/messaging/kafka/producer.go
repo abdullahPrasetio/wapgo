@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 	kafkago "github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
 
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
 )
@@ -55,15 +56,20 @@ func (p *Producer) Publish(ctx context.Context, msg Message) error {
 	if rid == "" {
 		rid = applogger.RequestIDFromContext(ctx)
 	}
+	headers := []kafkago.Header{
+		{Key: "x-request-id", Value: []byte(rid)},
+		{Key: "content-type", Value: []byte("application/json")},
+	}
+	// Inject OTel trace context so consumers can continue the distributed trace.
+	carrier := &kafkaHeaderCarrier{headers: &headers}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+
 	km := kafkago.Message{
-		Topic: msg.Topic,
-		Key:   msg.Key,
-		Value: msg.Value,
-		Time:  time.Now(),
-		Headers: []kafkago.Header{
-			{Key: "x-request-id", Value: []byte(rid)},
-			{Key: "content-type", Value: []byte("application/json")},
-		},
+		Topic:   msg.Topic,
+		Key:     msg.Key,
+		Value:   msg.Value,
+		Time:    time.Now(),
+		Headers: headers,
 	}
 	if err := p.w.WriteMessages(ctx, km); err != nil {
 		return fmt.Errorf("kafka publish topic=%s: %w", msg.Topic, err)
