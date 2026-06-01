@@ -2,7 +2,6 @@ package observability_test
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,40 +10,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/abdullahPrasetio/wapgo/config"
 	"github.com/abdullahPrasetio/wapgo/pkg/observability"
 )
 
-func TestSetupTracing_Disabled(t *testing.T) {
-	shutdown, err := observability.SetupTracing(context.Background(), &observability.TraceConfig{
-		Enabled: false,
-	})
+// newOTelProvider creates an OTel provider with stdout exporter for testing.
+func newOTelProvider(t *testing.T, enabled bool) observability.Provider {
+	t.Helper()
+	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: enabled}
+	p, err := observability.New(context.Background(), cfg, "test-svc", "0.0.0")
 	require.NoError(t, err)
-	require.NotNil(t, shutdown)
-	assert.NoError(t, shutdown(context.Background()))
+	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
+	return p
 }
 
-func TestSetupTracing_StdoutExporter(t *testing.T) {
-	shutdown, err := observability.SetupTracing(context.Background(), &observability.TraceConfig{
-		ServiceName:    "test-svc",
-		ServiceVersion: "0.0.0",
-		Enabled:        true, // no OTLPEndpoint → stdout
-	})
-	require.NoError(t, err)
-	require.NotNil(t, shutdown)
-	assert.NoError(t, shutdown(context.Background()))
+func TestOTelProvider_Disabled(t *testing.T) {
+	p := newOTelProvider(t, false)
+	assert.NotNil(t, p)
+	assert.NoError(t, p.Shutdown(context.Background()))
 }
 
-func TestTracingMiddleware_CreatesSpan(t *testing.T) {
-	// Ensure tracing is enabled (stdout exporter — no network needed)
-	shutdown, err := observability.SetupTracing(context.Background(), &observability.TraceConfig{
-		ServiceName: "test",
-		Enabled:     true,
-	})
-	require.NoError(t, err)
-	defer shutdown(context.Background()) //nolint:errcheck
+func TestOTelProvider_StdoutExporter(t *testing.T) {
+	p := newOTelProvider(t, true) // no OTLPEndpoint → stdout exporter
+	assert.NotNil(t, p)
+}
+
+func TestOTelProvider_HTTPMiddleware_CreatesSpan(t *testing.T) {
+	p := newOTelProvider(t, true)
 
 	app := fiber.New()
-	app.Use(observability.TracingMiddleware("test"))
+	app.Use(p.HTTPMiddleware())
 	app.Get("/hello", func(c *fiber.Ctx) error {
 		ctx := observability.TraceContext(c)
 		assert.NotNil(t, ctx)
@@ -57,20 +52,14 @@ func TestTracingMiddleware_CreatesSpan(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func TestTracingMiddleware_PropagatesW3CHeaders(t *testing.T) {
-	shutdown, err := observability.SetupTracing(context.Background(), &observability.TraceConfig{
-		ServiceName: "test",
-		Enabled:     true,
-	})
-	require.NoError(t, err)
-	defer shutdown(context.Background()) //nolint:errcheck
+func TestOTelProvider_HTTPMiddleware_PropagatesW3CHeaders(t *testing.T) {
+	p := newOTelProvider(t, true)
 
 	app := fiber.New()
-	app.Use(observability.TracingMiddleware("test"))
+	app.Use(p.HTTPMiddleware())
 	app.Get("/trace", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 
 	req := httptest.NewRequest(http.MethodGet, "/trace", nil)
-	// Inject a valid W3C traceparent header
 	req.Header.Set("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -81,7 +70,7 @@ func TestTraceContext_FallbackWhenNoMiddleware(t *testing.T) {
 	app := fiber.New()
 	app.Get("/no-trace", func(c *fiber.Ctx) error {
 		ctx := observability.TraceContext(c)
-		assert.NotNil(t, ctx) // must return context.Background(), never nil
+		assert.NotNil(t, ctx) // must never return nil
 		return c.SendStatus(200)
 	})
 	req := httptest.NewRequest(http.MethodGet, "/no-trace", nil)
@@ -90,17 +79,17 @@ func TestTraceContext_FallbackWhenNoMiddleware(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func ExampleSetupTracing() {
-	ctx := context.Background()
-	shutdown, err := observability.SetupTracing(ctx, &observability.TraceConfig{
-		ServiceName:    "my-service",
-		ServiceVersion: "1.0.0",
-		OTLPEndpoint:   "", // empty → stdout in dev; set "collector:4318" in prod
-		Enabled:        true,
-	})
+func ExampleNew() {
+	cfg := &config.ObservabilityConfig{
+		Provider:       "otel", // or "elastic_apm"
+		TracingEnabled: true,
+		OTLPEndpoint:   "",    // empty → stdout in dev; "collector:4318" in prod
+	}
+	p, err := observability.New(context.Background(), cfg, "my-service", "1.0.0")
 	if err != nil {
 		panic(err)
 	}
-	defer shutdown(ctx) //nolint:errcheck
-	_ = io.Discard     // use tracer via otel.Tracer("my-service")
+	defer p.Shutdown(context.Background()) //nolint:errcheck
+	// Use p.HTTPMiddleware() in your Fiber app,
+	// p.InstrumentGORM(db), p.InstrumentRedis(client), p.WrapTransport(t).
 }

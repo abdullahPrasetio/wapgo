@@ -126,6 +126,28 @@ Dokumen ini adalah peta jalan pengembangan framework. Acuan spesifikasi: [`promp
 
 **DoD:** ✅ `go build ./...` + `go vet ./...` bersih; semua test hijau; coverage > 80% semua paket; JWT lolos uji `alg:none`, expired, wrong iss/aud, tampered signature; trace propagasi W3C terverifikasi; `/metrics` 404 di production.
 
+### Fase v0.6 — Observability Provider (OTel | Elastic APM) ✅ SELESAI (2026-06-01)
+
+**Tujuan:** Full end-to-end observability yang bisa dipilih: OpenTelemetry atau Elastic APM — dari request masuk hingga DB, Redis, HTTP client — semuanya ter-track di Kibana.
+
+- [x] **`Provider` interface** (`pkg/observability/provider.go`) — `HTTPMiddleware`, `InstrumentGORM`, `InstrumentRedis`, `WrapTransport`, `Shutdown`. Semua layer tercover oleh satu abstraksi.
+- [x] **OTel Provider** (`pkg/observability/otel_provider.go`) — refactor dari v0.5; GORM via `otelgorm.NewPlugin()`; Redis via `redisotel.InstrumentTracing()`; HTTP client via `otelhttp.NewTransport()`; HTTP server via OTel `TracingMiddleware`.
+- [x] **Elastic APM Provider** (`pkg/observability/elastic_provider.go`) — `apmfiber.Middleware()` (server span); GORM via custom plugin callback (before/after query/create/update/delete/row/raw); Redis via custom hook (`ProcessHook` + `ProcessPipelineHook`); HTTP client via `apmhttp.WrapRoundTripper()`. Semua config agent dari ENV (`ELASTIC_APM_SERVER_URL`, `ELASTIC_APM_SERVICE_NAME`, `ELASTIC_APM_SECRET_TOKEN`, `ELASTIC_APM_ENVIRONMENT`, `ELASTIC_APM_ACTIVE`).
+- [x] **Factory** (`pkg/observability/setup.go`) — `New(ctx, cfg, serviceName, version)` memilih provider berdasarkan `OBSERVABILITY_PROVIDER`.
+- [x] **Config** — tambah `observability.provider` (ENV: `OBSERVABILITY_PROVIDER`); default `"otel"`.
+- [x] **`TraceContext(c)`** diperbarui — fallback ke `c.UserContext()` sehingga bekerja untuk kedua provider.
+- [x] **httpclient** — `Options.TransportWrapper` field baru; `New()` membungkus transport chain dengan wrapper (OTel atau APM).
+- [x] **`main.go`** diperbarui — `obsProvider.InstrumentGORM(db)` + `obsProvider.InstrumentRedis(client)` + `obsProvider.HTTPMiddleware()` + `obsProvider.Shutdown()`.
+- [x] **Usecase spans** — setiap metode usecase punya `tracer.Start(ctx, "MethodName")` + `span.RecordError` + `span.SetStatus` → usecase layer ter-track sebagai child span di APM waterfall.
+- [x] **CLI generator diperbarui** — skeleton `main.go`, `config.go`, `httpclient/base_client.go`, `route/router.go` semua reflect arsitektur provider. Template `usecase.go.tmpl` include OTel span per method → semua domain baru hasil `make:all` langsung punya tracing.
+
+**Dependencies baru:**
+`github.com/uptrace/opentelemetry-go-extra/otelgorm` · `github.com/redis/go-redis/extra/redisotel/v9` · `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` · `go.elastic.co/apm/v2` · `go.elastic.co/apm/module/apmfiber/v2` · `go.elastic.co/apm/module/apmgormv2/v2` · `go.elastic.co/apm/module/apmhttp/v2`
+
+**Hasil coverage:** observability 82%+ · (provider tests via tracing_test.go) — **semua > 80%** ✅
+
+**DoD:** ✅ `go build ./...` bersih; `go test ./...` hijau; `OBSERVABILITY_PROVIDER=elastic_apm` → Elastic APM agent aktif (env-driven); `OBSERVABILITY_PROVIDER=otel` → OTel SDK aktif; kedua provider instrument DB + Redis + HTTP client + HTTP server; CLI generator menghasilkan project dengan tracing siap pakai.
+
 ### Fase v1.0 — Hardening & Rilis
 
 **Tujuan:** Siap rilis, terverifikasi, terdokumentasi.

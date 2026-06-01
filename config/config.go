@@ -27,10 +27,16 @@ type JWTConfig struct {
 	Expiry   string `mapstructure:"expiry"`   // JWT_EXPIRY — Go duration string, e.g. "24h"
 }
 
-// ObservabilityConfig holds OpenTelemetry tracing parameters.
+// ObservabilityConfig controls which observability backend is used.
+//
+// Provider chooses the backend:
+//   - "otel"        (default) — OpenTelemetry SDK, OTLP export
+//   - "elastic_apm" — Elastic APM Go agent; agent ENV vars (ELASTIC_APM_*)
+//     are read automatically by the agent and do not need to appear here.
 type ObservabilityConfig struct {
-	TracingEnabled  bool   `mapstructure:"tracing_enabled"`  // OTEL_TRACING_ENABLED
-	OTLPEndpoint    string `mapstructure:"otlp_endpoint"`    // OTEL_EXPORTER_OTLP_ENDPOINT
+	Provider       string `mapstructure:"provider"`         // OBSERVABILITY_PROVIDER
+	TracingEnabled bool   `mapstructure:"tracing_enabled"`  // OTEL_TRACING_ENABLED (otel only)
+	OTLPEndpoint   string `mapstructure:"otlp_endpoint"`    // OTEL_EXPORTER_OTLP_ENDPOINT (otel only)
 }
 
 type AppConfig struct {
@@ -121,8 +127,9 @@ func Load() (*Config, error) {
 		"jwt.issuer":                        "JWT_ISSUER",
 		"jwt.audience":                      "JWT_AUDIENCE",
 		"jwt.expiry":                        "JWT_EXPIRY",
-		"observability.tracing_enabled":     "OTEL_TRACING_ENABLED",
-		"observability.otlp_endpoint":       "OTEL_EXPORTER_OTLP_ENDPOINT",
+		"observability.provider":             "OBSERVABILITY_PROVIDER",
+		"observability.tracing_enabled":      "OTEL_TRACING_ENABLED",
+		"observability.otlp_endpoint":        "OTEL_EXPORTER_OTLP_ENDPOINT",
 	}
 	for key, env := range bindings {
 		if err := v.BindEnv(key, env); err != nil {
@@ -151,6 +158,7 @@ func Load() (*Config, error) {
 	v.SetDefault("jwt.issuer", "wapgo-service")
 	v.SetDefault("jwt.audience", "wapgo-api")
 	v.SetDefault("jwt.expiry", "24h")
+	v.SetDefault("observability.provider", "otel")
 	v.SetDefault("observability.tracing_enabled", false)
 
 	if err := v.ReadInConfig(); err != nil {

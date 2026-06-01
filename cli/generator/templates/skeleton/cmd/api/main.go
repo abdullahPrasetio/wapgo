@@ -25,6 +25,7 @@ import (
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
 	kafkamsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
 	rabbitmqmsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/rabbitmq"
+	"github.com/abdullahPrasetio/wapgo/pkg/observability"
 	"github.com/abdullahPrasetio/wapgo/pkg/validator"
 )
 
@@ -37,11 +38,21 @@ func main() {
 	}
 
 	applogger.Setup(cfg.App.Env, cfg.Log.Level, cfg.Log.FilePath, cfg.Log.ToFile, cfg.App.Name)
-	log.Info().Str("version", version).Str("env", cfg.App.Env).Msg("starting service")
+	log.Info().Str("version", version).Str("env", cfg.App.Env).
+		Str("observability", cfg.Observability.Provider).Msg("starting service")
+
+	// Observability provider: "otel" (default) or "elastic_apm"
+	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to setup observability provider")
+	}
 
 	db, err := database.NewConnection(&cfg.DB)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
+	}
+	if err := obsProvider.InstrumentGORM(db); err != nil {
+		log.Warn().Err(err).Msg("gorm instrumentation failed")
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -55,6 +66,7 @@ func main() {
 	}
 
 	redisClient := newRedisClient(&cfg.Redis)
+	obsProvider.InstrumentRedis(redisClient)
 
 	userRepo := pgRepo.NewUserRepository(db)
 	userUC := usecase.NewUserUseCase(userRepo)
@@ -101,8 +113,10 @@ func main() {
 	app.Use(mw.RateLimiter())
 	app.Use(mw.RequestLogger())
 	app.Use(mw.CORS(cfg.App.CORSAllowedOrigins))
+	app.Use(obsProvider.HTTPMiddleware())
+	app.Use(observability.MetricsMiddleware())
 
-	route.Setup(app, userHandler, healthHandler)
+	route.Setup(app, userHandler, healthHandler, cfg.App.Env)
 
 	go func() {
 		addr := ":" + cfg.App.Port
@@ -123,6 +137,10 @@ func main() {
 
 	if err := app.ShutdownWithContext(shutCtx); err != nil {
 		log.Error().Err(err).Msg("http server forced shutdown")
+	}
+
+	if err := obsProvider.Shutdown(shutCtx); err != nil {
+		log.Error().Err(err).Msg("observability provider shutdown error")
 	}
 
 	redisClient.Close() //nolint:errcheck

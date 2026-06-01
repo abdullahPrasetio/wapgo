@@ -8,12 +8,17 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
 	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
 )
+
+var tracer = otel.Tracer("user-usecase")
 
 type CreateUserRequest struct {
 	Name     string `json:"name"     validate:"required,min=2,max=100"`
@@ -43,8 +48,14 @@ func NewUserUseCase(repo domainrepo.UserRepository) UserUseCase {
 }
 
 func (u *userUseCase) GetUser(ctx context.Context, id string) (*entity.User, error) {
+	ctx, span := tracer.Start(ctx, "GetUser")
+	defer span.End()
+	span.SetAttributes(attribute.String("user.id", id))
+
 	uid, err := parseUUID(id)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	user, err := u.repo.FindByID(ctx, uid)
@@ -52,22 +63,34 @@ func (u *userUseCase) GetUser(ctx context.Context, id string) (*entity.User, err
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 	return user, nil
 }
 
 func (u *userUseCase) ListUsers(ctx context.Context) ([]*entity.User, error) {
+	ctx, span := tracer.Start(ctx, "ListUsers")
+	defer span.End()
+
 	users, err := u.repo.FindAll(ctx)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("list users: %w", err)
 	}
 	return users, nil
 }
 
 func (u *userUseCase) CreateUser(ctx context.Context, req *CreateUserRequest) (*entity.User, error) {
+	ctx, span := tracer.Start(ctx, "CreateUser")
+	defer span.End()
+
 	exists, err := u.repo.ExistsByEmail(ctx, req.Email)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("check email: %w", err)
 	}
 	if exists {
@@ -76,6 +99,8 @@ func (u *userUseCase) CreateUser(ctx context.Context, req *CreateUserRequest) (*
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("hashing password: %w", err)
 	}
 
@@ -85,14 +110,22 @@ func (u *userUseCase) CreateUser(ctx context.Context, req *CreateUserRequest) (*
 		Password: string(hash),
 	}
 	if err := u.repo.Create(ctx, user); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 	return user, nil
 }
 
 func (u *userUseCase) UpdateUser(ctx context.Context, id string, req *UpdateUserRequest) (*entity.User, error) {
+	ctx, span := tracer.Start(ctx, "UpdateUser")
+	defer span.End()
+	span.SetAttributes(attribute.String("user.id", id))
+
 	uid, err := parseUUID(id)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
@@ -101,6 +134,8 @@ func (u *userUseCase) UpdateUser(ctx context.Context, id string, req *UpdateUser
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("find user: %w", err)
 	}
 
@@ -110,6 +145,8 @@ func (u *userUseCase) UpdateUser(ctx context.Context, id string, req *UpdateUser
 	if req.Email != "" && req.Email != user.Email {
 		exists, err := u.repo.ExistsByEmail(ctx, req.Email)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("check email: %w", err)
 		}
 		if exists {
@@ -119,14 +156,22 @@ func (u *userUseCase) UpdateUser(ctx context.Context, id string, req *UpdateUser
 	}
 
 	if err := u.repo.Update(ctx, user); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 	return user, nil
 }
 
 func (u *userUseCase) DeleteUser(ctx context.Context, id string) error {
+	ctx, span := tracer.Start(ctx, "DeleteUser")
+	defer span.End()
+	span.SetAttributes(attribute.String("user.id", id))
+
 	uid, err := parseUUID(id)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -134,10 +179,14 @@ func (u *userUseCase) DeleteUser(ctx context.Context, id string) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrNotFound
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("find user: %w", err)
 	}
 
 	if err := u.repo.Delete(ctx, uid); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("delete user: %w", err)
 	}
 	return nil

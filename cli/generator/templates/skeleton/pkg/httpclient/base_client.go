@@ -35,6 +35,9 @@ type Options struct {
 	MaxRetries            int
 	CBConsecutiveFailures uint32
 	CBTimeout             time.Duration
+	// TransportWrapper wraps the assembled transport for distributed tracing.
+	// Set to obsProvider.WrapTransport to record outgoing HTTP calls as spans.
+	TransportWrapper func(http.RoundTripper) http.RoundTripper
 }
 
 func applyDefaults(o Options) Options {
@@ -83,8 +86,13 @@ func New(opts Options) *Client {
 	retry := &retryTransport{inner: ssrf, maxRetries: opts.MaxRetries, baseDelay: 500 * time.Millisecond}
 	cb := newCBTransport(retry, cbSettings)
 
+	var finalTransport http.RoundTripper = cb
+	if opts.TransportWrapper != nil {
+		finalTransport = opts.TransportWrapper(cb)
+	}
+
 	hc := &http.Client{
-		Transport:     cb,
+		Transport:     finalTransport,
 		Timeout:       opts.Timeout,
 		CheckRedirect: ssrfCheckRedirect(opts.AllowedHosts),
 	}

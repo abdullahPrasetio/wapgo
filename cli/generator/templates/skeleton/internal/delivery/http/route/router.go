@@ -6,11 +6,23 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/handler"
+	"github.com/abdullahPrasetio/wapgo/pkg/observability"
 )
 
-func Setup(app *fiber.App, userHandler *handler.UserHandler, healthHandler *handler.HealthHandler) {
+func Setup(app *fiber.App, userHandler *handler.UserHandler, healthHandler *handler.HealthHandler, appEnv string) {
 	app.Get("/health", healthHandler.Check)
+	app.Get("/metrics", prodGuard(appEnv), observability.MetricsHandler())
 
 	v1 := app.Group("/api/v1")
 	RegisterUserRoutes(v1, userHandler)
+}
+
+// prodGuard returns 404 for internal endpoints when APP_ENV=production.
+func prodGuard(appEnv string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if appEnv == "production" {
+			return fiber.ErrNotFound
+		}
+		return c.Next()
+	}
 }

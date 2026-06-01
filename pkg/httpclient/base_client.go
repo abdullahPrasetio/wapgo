@@ -39,6 +39,10 @@ type Options struct {
 	MaxRetries            int           // retry attempts on 5xx/network timeout (default 3)
 	CBConsecutiveFailures uint32        // consecutive failures before circuit opens (default 5)
 	CBTimeout             time.Duration // open→half-open after this duration (default 30s)
+	// TransportWrapper, when set, wraps the final assembled transport chain.
+	// Use observability.Provider.WrapTransport to add distributed tracing spans
+	// for outgoing requests (OTel otelhttp.NewTransport or Elastic APM apmhttp.WrapRoundTripper).
+	TransportWrapper func(http.RoundTripper) http.RoundTripper
 }
 
 func applyDefaults(o Options) Options {
@@ -100,8 +104,14 @@ func New(opts Options) *Client {
 	retry := &retryTransport{inner: ssrf, maxRetries: opts.MaxRetries, baseDelay: 500 * time.Millisecond}
 	cb := newCBTransport(retry, cbSettings)
 
+	// Outermost layer: observability transport (tracing spans for outgoing requests).
+	var finalTransport http.RoundTripper = cb
+	if opts.TransportWrapper != nil {
+		finalTransport = opts.TransportWrapper(cb)
+	}
+
 	hc := &http.Client{
-		Transport:     cb,
+		Transport:     finalTransport,
 		Timeout:       opts.Timeout,
 		CheckRedirect: ssrfCheckRedirect(opts.AllowedHosts),
 	}

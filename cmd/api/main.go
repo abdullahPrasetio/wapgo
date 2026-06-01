@@ -27,7 +27,7 @@ import (
 	"github.com/abdullahPrasetio/wapgo/pkg/validator"
 )
 
-const version = "0.5.0"
+const version = "0.6.0"
 
 func main() {
 	// ── Config ───────────────────────────────────────────────────────────────
@@ -38,23 +38,25 @@ func main() {
 
 	// ── Logger ───────────────────────────────────────────────────────────────
 	applogger.Setup(cfg.App.Env, cfg.Log.Level, cfg.Log.FilePath, cfg.Log.ToFile, cfg.App.Name)
-	log.Info().Str("version", version).Str("env", cfg.App.Env).Msg("starting wapgo")
+	log.Info().Str("version", version).Str("env", cfg.App.Env).
+		Str("observability", cfg.Observability.Provider).Msg("starting wapgo")
 
-	// ── OpenTelemetry tracing ─────────────────────────────────────────────────
-	otelShutdown, err := observability.SetupTracing(context.Background(), &observability.TraceConfig{
-		ServiceName:    cfg.App.Name,
-		ServiceVersion: version,
-		OTLPEndpoint:   cfg.Observability.OTLPEndpoint,
-		Enabled:        cfg.Observability.TracingEnabled,
-	})
+	// ── Observability provider ────────────────────────────────────────────────
+	// Selects OTel or Elastic APM based on OBSERVABILITY_PROVIDER env var.
+	// Prometheus RED metrics (MetricsMiddleware) run independently of this choice.
+	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to setup tracing")
+		log.Fatal().Err(err).Msg("failed to setup observability provider")
 	}
 
 	// ── Database ─────────────────────────────────────────────────────────────
 	db, err := database.NewConnection(&cfg.DB)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
+	}
+	// Instrument GORM: every query becomes a child span of the active transaction.
+	if err := obsProvider.InstrumentGORM(db); err != nil {
+		log.Warn().Err(err).Msg("gorm instrumentation failed")
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -71,6 +73,8 @@ func main() {
 
 	// ── Redis ────────────────────────────────────────────────────────────────
 	redisClient := newRedisClient(&cfg.Redis)
+	// Instrument Redis: every command becomes a child span.
+	obsProvider.InstrumentRedis(redisClient)
 	log.Info().Msg("redis connected")
 
 	// ── Repositories ─────────────────────────────────────────────────────────
@@ -87,14 +91,12 @@ func main() {
 	userHandler := handler.NewUserHandler(userUC, val)
 	healthHandler := handler.NewHealthHandler(sqlDB, redisClient, startTime, version)
 
-	// Register Kafka health checker when brokers are configured.
 	if cfg.Kafka.Brokers != "" {
 		healthHandler.AddChecker("kafka", kafkamsg.HealthCheck(cfg.Kafka.Brokers))
 	} else {
 		healthHandler.AddChecker("kafka", func(_ context.Context) string { return "not_configured" })
 	}
 
-	// Register RabbitMQ health checker when DSN is configured.
 	if cfg.RabbitMQ.DSN != "" {
 		healthHandler.AddChecker("rabbitmq", rabbitmqmsg.HealthCheck(cfg.RabbitMQ.DSN))
 	} else {
@@ -104,7 +106,7 @@ func main() {
 	// ── Fiber app ────────────────────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
 		AppName:               cfg.App.Name,
-		BodyLimit:             4 * 1024 * 1024, // 4 MB
+		BodyLimit:             4 * 1024 * 1024,
 		ReadTimeout:           10 * time.Second,
 		WriteTimeout:          10 * time.Second,
 		IdleTimeout:           120 * time.Second,
@@ -128,10 +130,9 @@ func main() {
 	app.Use(mw.RateLimiter())
 	app.Use(mw.RequestLogger())
 	app.Use(mw.CORS(cfg.App.CORSAllowedOrigins))
-	app.Use(observability.TracingMiddleware(cfg.App.Name))
-	app.Use(observability.MetricsMiddleware())
+	app.Use(obsProvider.HTTPMiddleware())      // tracing: OTel or Elastic APM
+	app.Use(observability.MetricsMiddleware()) // Prometheus RED metrics (always on)
 
-	// Routes
 	route.Setup(app, userHandler, healthHandler, cfg.App.Env)
 
 	// ── Start server ─────────────────────────────────────────────────────────
@@ -158,10 +159,10 @@ func main() {
 	}
 	log.Info().Msg("http server stopped")
 
-	if err := otelShutdown(shutCtx); err != nil {
-		log.Error().Err(err).Msg("otel shutdown error")
+	if err := obsProvider.Shutdown(shutCtx); err != nil {
+		log.Error().Err(err).Msg("observability provider shutdown error")
 	}
-	log.Info().Msg("otel traces flushed")
+	log.Info().Msg("observability provider stopped")
 
 	if err := redisClient.Close(); err != nil {
 		log.Error().Err(err).Msg("redis close error")
@@ -169,10 +170,8 @@ func main() {
 	log.Info().Msg("redis closed")
 
 	if err := sqlDB.Close(); err != nil {
-		log.Error().Err(err).Msg("database close error")
+		log.Error().Err(err).Msg("database closed")
 	}
-	log.Info().Msg("database closed")
-
 	log.Info().Msg("shutdown complete")
 }
 
