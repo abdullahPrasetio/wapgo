@@ -13,15 +13,7 @@ import (
 // ErrCacheMiss is returned when the requested key does not exist.
 var ErrCacheMiss = errors.New("cache miss")
 
-// Cacher is the cache interface that usecases depend on.
-type Cacher interface {
-	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
-	Get(ctx context.Context, key string, dest interface{}) error
-	Del(ctx context.Context, keys ...string) error
-	Exists(ctx context.Context, key string) (bool, error)
-}
-
-// RedisCacher implements Cacher using a Redis client.
+// RedisCacher implements repository.Cacher using a Redis client.
 type RedisCacher struct {
 	client *redis.Client
 	ns     string // namespace prefix (e.g. "users")

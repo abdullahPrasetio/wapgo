@@ -61,14 +61,31 @@ func (m *callConsumeChan) Consume(_, _ string, _, _, _, _ bool, _ amqp.Table) (<
 func (m *callConsumeChan) Close() error { return m.closeErr }
 
 // mockAck tracks Ack/Nack calls on a delivery.
+// doneCh (optional) is closed/sent-to after Ack or Nack so goroutine-based tests
+// can synchronize without a data race on the acked/nacked fields.
 type mockAck struct {
 	acked  bool
 	nacked bool
+	doneCh chan struct{}
 }
 
-func (a *mockAck) Ack(_ uint64, _ bool) error   { a.acked = true; return nil }
-func (a *mockAck) Nack(_ uint64, _, _ bool) error { a.nacked = true; return nil }
-func (a *mockAck) Reject(_ uint64, _ bool) error  { return nil }
+func newMockAck() *mockAck { return &mockAck{doneCh: make(chan struct{}, 1)} }
+
+func (a *mockAck) Ack(_ uint64, _ bool) error {
+	a.acked = true
+	if a.doneCh != nil {
+		a.doneCh <- struct{}{}
+	}
+	return nil
+}
+func (a *mockAck) Nack(_ uint64, _, _ bool) error {
+	a.nacked = true
+	if a.doneCh != nil {
+		a.doneCh <- struct{}{}
+	}
+	return nil
+}
+func (a *mockAck) Reject(_ uint64, _ bool) error { return nil }
 
 // mockCloser tracks Close calls.
 type mockCloser struct {
@@ -163,17 +180,14 @@ func TestSubscribe_Success(t *testing.T) {
 // ── drain ─────────────────────────────────────────────────────────────────────
 
 // TestDrain_WithMessage verifies the drain goroutine processes a real delivery.
+// We synchronize via mockAck.doneCh (written before the channel send returns)
+// rather than a separate handler channel, so the race detector is satisfied.
 func TestDrain_WithMessage(t *testing.T) {
 	ch := newCallChan()
 	c := newConsumerFrom(ch, nil, "ex", zerolog.Nop())
+	require.NoError(t, c.Subscribe("q", "rk", func(_ context.Context, _ Message) error { return nil }))
 
-	done := make(chan struct{})
-	require.NoError(t, c.Subscribe("q", "rk", func(_ context.Context, _ Message) error {
-		close(done)
-		return nil
-	}))
-
-	ack := &mockAck{}
+	ack := newMockAck()
 	ch.deliveries <- amqp.Delivery{
 		Acknowledger: ack,
 		RoutingKey:   "rk",
@@ -181,7 +195,7 @@ func TestDrain_WithMessage(t *testing.T) {
 	}
 
 	select {
-	case <-done:
+	case <-ack.doneCh:
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("drain goroutine did not process message in time")
 	}
@@ -191,7 +205,7 @@ func TestDrain_WithMessage(t *testing.T) {
 // ── handle ────────────────────────────────────────────────────────────────────
 
 func TestHandle_Ack(t *testing.T) {
-	ack := &mockAck{}
+	ack := newMockAck()
 	d := amqp.Delivery{
 		Acknowledger: ack,
 		RoutingKey:   "user.created",
@@ -209,7 +223,7 @@ func TestHandle_Ack(t *testing.T) {
 }
 
 func TestHandle_Nack_OnError(t *testing.T) {
-	ack := &mockAck{}
+	ack := newMockAck()
 	d := amqp.Delivery{
 		Acknowledger: ack,
 		RoutingKey:   "rk",
@@ -224,7 +238,7 @@ func TestHandle_Nack_OnError(t *testing.T) {
 }
 
 func TestHandle_NoRequestIDHeader(t *testing.T) {
-	ack := &mockAck{}
+	ack := newMockAck()
 	d := amqp.Delivery{
 		Acknowledger: ack,
 		RoutingKey:   "rk",

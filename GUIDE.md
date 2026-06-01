@@ -2,6 +2,8 @@
 
 > **wapgo** (*Web API Platform for Go*) adalah framework microservice Go yang production-ready: Clean Architecture, ENV-first config, observability & JWT bawaan, dan CLI generator ala Laravel artisan.
 
+**Dokumen lain:** [README](README.md) · [Arsitektur & Konsep](ARCHITECTURE.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+
 ---
 
 ## Daftar Isi
@@ -319,25 +321,29 @@ Bawaan: retry (3x, exponential backoff), circuit breaker (open setelah 5 gagal),
 import "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
 
 // Producer
-producer := kafka.NewProducer(kafka.ProducerConfig{
-    Brokers: []string{"localhost:9092"},
-    Topic:   "user.events",
+// brokers: comma-separated "host:port"
+producer := kafka.NewProducer("localhost:9092", logger)
+err := producer.Publish(ctx, kafka.Message{
+    Topic: "user.events",
+    Key:   []byte("user-123"),
+    Value: []byte(`{"event":"created","id":"123"}`),
 })
-err := producer.Publish(ctx, []byte(`{"event":"created","id":"123"}`))
+defer producer.Close()
 
 // Consumer
-consumer := kafka.NewConsumer(kafka.ConsumerConfig{
-    Brokers: []string{"localhost:9092"},
-    Topic:   "user.events",
-    GroupID: "my-service",
-})
-consumer.Start(ctx, func(ctx context.Context, msg []byte) error {
-    // proses pesan
+// brokers: comma-separated, groupID: consumer group, topic: satu topic
+consumer := kafka.NewConsumer("localhost:9092", "my-service-group", "user.events", logger)
+err = consumer.Start(ctx, func(ctx context.Context, msg kafka.Message) error {
+    // proses pesan; return non-nil = offset tidak di-commit (re-delivered)
     return nil
 })
+defer consumer.Close()
+
+// Health check (untuk /health endpoint)
+kafka.HealthCheck("localhost:9092")  // return func(ctx) string
 ```
 
-X-Request-ID dipropagasi otomatis via Kafka header.
+`X-Request-ID` dipropagasi otomatis via Kafka header `x-request-id`.
 
 ### 7.5 messaging — RabbitMQ
 
@@ -345,24 +351,33 @@ X-Request-ID dipropagasi otomatis via Kafka header.
 import "github.com/abdullahPrasetio/wapgo/pkg/messaging/rabbitmq"
 
 // Publisher
-pub := rabbitmq.NewPublisher(rabbitmq.PublisherConfig{
-    DSN:      "amqp://guest:guest@localhost:5672/",
-    Exchange: "user.events",
+pub, err := rabbitmq.NewPublisher("amqp://guest:guest@localhost:5672/", "user.events", logger)
+if err != nil { ... }
+defer pub.Close()
+
+err = pub.Publish(ctx, rabbitmq.Message{
+    RoutingKey: "user.created",
+    Body:       []byte(`{"id":"123"}`),
 })
-err := pub.Publish(ctx, "user.created", []byte(`{"id":"123"}`))
 
 // Consumer dengan Dead Letter Queue otomatis
-cons := rabbitmq.NewConsumer(rabbitmq.ConsumerConfig{
-    DSN:      "amqp://guest:guest@localhost:5672/",
-    Queue:    "user.events.created",
-    Exchange: "user.events",
-})
-cons.Start(ctx, func(ctx context.Context, msg []byte) error {
-    return nil
-})
+cons, err := rabbitmq.NewConsumer("amqp://guest:guest@localhost:5672/", "user.events", logger)
+if err != nil { ... }
+defer cons.Close()
+
+// Subscribe: declare queue + bind routing key + mulai goroutine drain
+err = cons.Subscribe("user.events.created", "user.created",
+    func(ctx context.Context, msg rabbitmq.Message) error {
+        // return non-nil = Nack → pesan masuk ke DLQ otomatis
+        return nil
+    },
+)
+
+// Health check (untuk /health endpoint)
+rabbitmq.HealthCheck("amqp://guest:guest@localhost:5672/")  // return func(ctx) string
 ```
 
-DLQ dikonfigurasi otomatis via `x-dead-letter-exchange`.
+DLQ (`user.events.created.dlq`) dikonfigurasi otomatis via `x-dead-letter-exchange`.
 
 ### 7.6 observability
 

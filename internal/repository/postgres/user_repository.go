@@ -12,11 +12,15 @@ import (
 	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
 )
 
+// userRepository sengaja unexported agar caller tidak bisa bergantung ke
+// struct konkret ini — mereka hanya bisa memakai tipe interface-nya.
 type userRepository struct {
 	db *gorm.DB
 }
 
-// NewUserRepository creates a Postgres-backed UserRepository.
+// NewUserRepository membuat implementasi Postgres dari domainrepo.UserRepository.
+// Return type-nya adalah interface (bukan *userRepository) supaya caller
+// tidak perlu tahu bahwa di baliknya ada Postgres — cukup pakai kontraknya.
 func NewUserRepository(db *gorm.DB) domainrepo.UserRepository {
 	return &userRepository{db: db}
 }

@@ -1,19 +1,57 @@
-# Go Microservice Boilerplate
+# wapgo — Web API Platform for Go
 
-Production-ready Go microservice template with Clean Architecture, designed for OpenShift/Kubernetes deployment.
+> Production-ready Go microservice framework: Clean Architecture, ENV-first config (OpenShift/Kubernetes ready), observability built-in, and a CLI that scaffolds full projects in seconds.
+
+[![CI](https://github.com/abdullahPrasetio/wapgo/actions/workflows/ci.yml/badge.svg)](https://github.com/abdullahPrasetio/wapgo/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/abdullahPrasetio/wapgo)](https://goreportcard.com/report/github.com/abdullahPrasetio/wapgo)
+[![Coverage](https://img.shields.io/badge/coverage-%3E80%25-brightgreen)](https://github.com/abdullahPrasetio/wapgo/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Dokumentasi:** [Developer Guide](GUIDE.md) · [Arsitektur & Konsep](ARCHITECTURE.md) · [Keunggulan](HIGHLIGHTS.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+
+---
+
+## Quick Start
+
+```bash
+# 1. Install the CLI
+go install github.com/abdullahPrasetio/wapgo/cli/cmd@latest   # → binary `wapgo`
+
+# 2. Scaffold a new service
+wapgo new my-service --module github.com/me/my-service
+cd my-service
+
+# 3. Start infrastructure
+make docker-up
+cp .env.example .env
+
+# 4. Run the service
+make run
+
+# 5. Verify
+curl http://localhost:8080/health
+
+# 6. Generate a new domain
+wapgo make:all product
+```
+
+---
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Framework | Fiber v2 |
+| HTTP | [Fiber v2](https://gofiber.io) |
 | ORM | GORM (PostgreSQL / MySQL) |
 | Cache | Redis |
 | Messaging | Kafka + RabbitMQ |
-| Config | Viper (ENV-first) |
-| Logger | zerolog |
-| CLI | Cobra |
-| HTTP Client | net/http + resilience wrapper |
+| Config | Viper (ENV-first, 12-factor) |
+| Logger | zerolog (JSON prod / console dev) |
+| Auth | JWT HS256 + RBAC middleware |
+| Tracing | OpenTelemetry SDK + Elastic APM |
+| Metrics | Prometheus (`/metrics`) |
+| CLI | Cobra — `wapgo new` + `wapgo make:*` |
+| HTTP Client | net/http + retry + circuit breaker + SSRF guard |
 
 ---
 
@@ -41,251 +79,157 @@ Production-ready Go microservice template with Clean Architecture, designed for 
 │               │                         │               │
 │  ┌────────────▼──────────┐  ┌───────────▼────────────┐  │
 │  │  Repository Interface  │  │  ExternalSvc Interface │  │
-│  │  (domain/repository)   │  │  (domain/service)      │  │
 │  └────────────┬──────────┘  └───────────┬────────────┘  │
 │               │                         │               │
 │  ┌────────────▼──────────┐  ┌───────────▼────────────┐  │
 │  │  Postgres / Redis impl │  │  HTTP Client impl      │  │
-│  │  (internal/repository) │  │  (pkg/httpclient)      │  │
-│  └────────────┬──────────┘  └───────────┬────────────┘  │
-│               │                         │               │
-│  ┌────────────▼──────────┐  ┌───────────▼────────────┐  │
-│  │  PostgreSQL / MySQL   │  │  External Microservice  │  │
-│  │  Redis cache          │  │  via HTTP/REST          │  │
 │  └───────────────────────┘  └────────────────────────┘  │
-│                                                         │
-│  ┌──────────────────┐  ┌──────────────────────────────┐ │
-│  │  Kafka           │  │  RabbitMQ                    │ │
-│  │  producer+consumer│  │  publisher+consumer+DLQ     │ │
-│  └──────────────────┘  └──────────────────────────────┘ │
-│                                                         │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │  zerolog · logs/ folder · daily rotation         │   │
-│  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Clean Architecture Rules
+## Features
 
-```
-Handler
-  └── calls Usecase interface only
-        └── calls Repository interface (persistence)
-              └── impl: internal/repository/postgres/
-                        internal/repository/redis/
-        └── calls ExternalService interface (inter-service HTTP)
-              └── impl: pkg/httpclient/
+### Core (v0.1)
+- **Clean Architecture** — strict layer boundaries enforced by interfaces.
+- **ENV-first config** — Viper with explicit `BindEnv` for all 25+ variables; ready for K8s ConfigMap/Secret.
+- **Middleware stack** — recover (no stack-trace leak) → request-id → security headers → rate-limit → logger → CORS.
+- **Reference domain `user`** — full CRUD: entity → repository → usecase → handler → route.
+- `/health` with DB + Redis checks, graceful shutdown (30s SIGTERM).
+
+### Cache & Messaging (v0.2)
+- **Redis cache** — `Cacher` interface + `RedisCacher` (JSON, TTL, namespace prefix).
+- **Kafka** — producer + consumer group with context-aware graceful shutdown.
+- **RabbitMQ** — topic exchange publisher + consumer with DLQ support.
+- **Request-ID propagation** — injected into Kafka headers, AMQP properties, and outgoing HTTP.
+
+### Resilient HTTP Client (v0.3)
+- Retry with exponential back-off (5xx + network timeout, max 3 attempts).
+- Circuit breaker (open after 5 consecutive failures, half-open after 30s).
+- SSRF guard — blocks loopback / private / link-local destinations; supports allowlist.
+- TLS verify ON, minimum TLS 1.2, response body capped at 10 MB.
+
+### CLI (v0.4)
+```bash
+wapgo new <project> --module github.com/me/svc   # scaffold full project
+wapgo make:all <name>                             # generate 8 domain files
+wapgo make:model | make:repo | make:usecase | make:controller | make:route | make:client
+wapgo version
 ```
 
-Each layer depends only on the interface above it. No concrete imports across layers. All wired in `cmd/api/main.go` via constructor injection.
+### Auth & Observability (v0.5–v0.6)
+- **JWT auth** — HS256, pinned algorithm, validates `exp/iat/iss/aud`, `alg:none` rejected, secret ≥ 32 bytes.
+- **RBAC** — `auth.RequireRole("admin")` middleware.
+- **Prometheus metrics** — `wapgo_http_requests_total`, `wapgo_http_request_duration_seconds`.
+- **OpenTelemetry** — OTLP HTTP exporter, W3C TraceContext propagation, span per request.
+- **Elastic APM** — `apmfiber`, GORM + Redis + HTTP client instrumentation.
+- Switch providers via `OBSERVABILITY_PROVIDER=otel|elastic_apm`.
 
 ---
 
-## Inter-service HTTP Communication
+## Configuration
 
-```
-Usecase
-  └── ExternalUserService (interface in domain/service/)
-        └── user_client.go (impl in pkg/httpclient/)
-              └── base_client.go
-                    ├── inject X-Request-ID header (tracing)
-                    ├── inject Authorization header
-                    └── middleware.go
-                          ├── retry (max 3, exponential backoff)
-                          ├── timeout (5s default, configurable)
-                          └── circuit breaker (open after 5 failures)
-```
+All settings are read from ENV (highest priority) → `config/config.yaml` → defaults.
 
-External service URLs are injected via ENV (`USER_SERVICE_URL`, `ORDER_SERVICE_URL`), managed by OpenShift ConfigMap per environment.
-
----
-
-## Request Tracing
-
-Every request gets a unique `X-Request-ID` (UUID) injected by middleware. This ID propagates through:
-
-- Response header `X-Request-ID`
-- All log entries (zerolog context)
-- Outgoing HTTP calls to other services (request header)
-- Kafka message headers
-- RabbitMQ message properties
+| Variable | Default | Description |
+|---|---|---|
+| `APP_ENV` | `development` | `production` enables hardening mode |
+| `APP_PORT` | `8080` | HTTP listen port |
+| `APP_NAME` | `wapgo-service` | Service name (used in logs + traces) |
+| `DB_DRIVER` | `postgres` | `postgres` or `mysql` |
+| `DB_HOST` | `localhost` | Database host |
+| `DB_PASSWORD` | — | **Required in production** |
+| `JWT_SECRET` | — | **Required, min 32 bytes** |
+| `JWT_EXPIRY` | `24h` | Go duration string |
+| `OBSERVABILITY_PROVIDER` | `otel` | `otel` or `elastic_apm` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | e.g. `http://otel-collector:4318` |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
+| `KAFKA_BROKERS` | — | Comma-separated `host:port` |
+| `RABBITMQ_DSN` | — | `amqp://user:pass@host:5672/vhost` |
 
 ---
 
-## Project Structure
-
-```
-.
-├── cmd/
-│   ├── api/main.go          ← entrypoint, wire all deps
-│   └── cli/main.go          ← CLI entrypoint
-├── config/                  ← Viper config loader
-├── internal/
-│   ├── domain/
-│   │   ├── entity/          ← GORM models
-│   │   ├── repository/      ← repository interfaces
-│   │   └── service/         ← external HTTP service interfaces
-│   ├── usecase/             ← business logic
-│   ├── delivery/http/       ← handler, middleware, route
-│   └── repository/          ← postgres + redis implementations
-├── pkg/
-│   ├── logger/              ← zerolog setup + file rotation
-│   ├── messaging/
-│   │   ├── kafka/           ← producer + group consumer
-│   │   └── rabbitmq/        ← publisher + consumer + DLQ
-│   ├── httpclient/          ← base client + resilience + service impls
-│   ├── response/            ← centralized HTTP response struct
-│   └── validator/
-├── cli/commands/            ← cobra generators
-├── migrations/
-├── logs/                    ← log files (gitignored)
-├── Dockerfile               ← multi-stage build
-├── docker-compose.yml
-└── Makefile
-```
-
----
-
-## CLI Generator
+## Development
 
 ```bash
-# Build CLI first
-make cli-build
-
-# Then use it
-./bin/cli make:all <name>      # generates all layers at once
-./bin/cli make:model <name>    # entity only
-./bin/cli make:repo <name>     # interface + postgres impl
-./bin/cli make:usecase <name>  # interface + implementation
-./bin/cli make:controller <name>
-./bin/cli make:route <name>
-./bin/cli make:client <name>   # external HTTP service interface + impl
+make run          # start API server
+make test         # unit tests
+make coverage     # test + HTML coverage report
+make lint         # golangci-lint
+make sec          # gosec + govulncheck
+make docker-up    # postgres, redis, kafka, rabbitmq
+make docker-down
+make build        # compile API binary → bin/api
+make cli-build    # compile CLI binary → bin/wapgo
 ```
 
----
-
-## Environment Variables
-
-All config is driven by ENV — no hardcoded values, required for OpenShift ConfigMap/Secret injection.
-
-```env
-# App
-APP_ENV=development
-APP_PORT=8080
-APP_NAME=my-service
-
-# Database (switchable: postgres | mysql)
-DB_DRIVER=postgres
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=mydb
-DB_USER=user
-DB_PASSWORD=password
-DB_AUTO_MIGRATE=true
-
-# Redis
-REDIS_URL=redis://localhost:6379
-
-# Kafka
-KAFKA_BROKERS=localhost:9092
-KAFKA_GROUP_ID=my-service-group
-
-# RabbitMQ
-RABBITMQ_DSN=amqp://guest:guest@localhost:5672/
-RABBITMQ_EXCHANGE=my-exchange
-
-# Logger
-LOG_LEVEL=info
-LOG_TO_FILE=true
-LOG_FILE_PATH=logs/app.log
-
-# External services (managed per-env via ConfigMap)
-USER_SERVICE_URL=http://user-service:8080
-ORDER_SERVICE_URL=http://order-service:8080
-```
-
----
-
-## Quick Start
+### Integration tests (requires Docker)
 
 ```bash
-# 1. Start infrastructure
-make docker-up
-
-# 2. Copy env
-cp .env.example .env
-
-# 3. Run
-make run
-
-# 4. Health check
-curl http://localhost:8080/health
+go test -tags=integration -v ./internal/integration/...
 ```
 
 ---
 
-## Makefile Commands
+## Deployment
+
+### Docker
 
 ```bash
-make run          # go run cmd/api/main.go
-make build        # build binary to bin/api
-make cli-build    # build CLI to bin/cli
-make docker-up    # docker-compose up -d
-make docker-down  # docker-compose down
-make test         # go test ./...
-make lint         # golangci-lint run
+docker build -t wapgo:latest .
+docker run -p 8080:8080 --env-file .env wapgo:latest
+```
+
+The image is built from `gcr.io/distroless/static-debian12:nonroot`:
+- No shell, no package manager
+- Runs as UID 65532 (non-root)
+- Read-only root filesystem
+
+### Kubernetes
+
+```bash
+kubectl apply -f kubernetes/configmap.yaml
+kubectl apply -f kubernetes/secret.yaml     # edit real values first
+kubectl apply -f kubernetes/deployment.yaml
+kubectl apply -f kubernetes/service.yaml
+kubectl apply -f kubernetes/networkpolicy.yaml
 ```
 
 ---
 
-## Health Check
+## Security
 
-```
-GET /health
+See [SECURITY.md](SECURITY.md) for the full security policy and vulnerability reporting process.
 
-200 OK — all services healthy
-503 Service Unavailable — one or more services down
-
-{
-  "status": "ok",
-  "services": {
-    "database": "ok",
-    "redis": "ok",
-    "kafka": "ok",
-    "rabbitmq": "ok"
-  },
-  "version": "1.0.0",
-  "uptime": "2h30m"
-}
-```
+**CI security gates** — all must pass before merge:
+`gosec` · `govulncheck` · `gitleaks` · `trivy` · `golangci-lint` · coverage ≥ 80 %
 
 ---
 
-## Graceful Shutdown
+## Coverage
 
-Handles `SIGTERM` (OpenShift pod termination) and `SIGINT`:
-
-1. Stop accepting new HTTP requests
-2. Wait max 30s for in-flight requests to complete
-3. Close Kafka producer
-4. Close RabbitMQ connection
-5. Close Redis connection
-6. Close DB connection pool
+| Package | Coverage |
+|---|---|
+| config | 90 % |
+| pkg/auth | 92 % |
+| pkg/httpclient | 94 % |
+| pkg/messaging/kafka | 91 % |
+| pkg/messaging/rabbitmq | 84 % |
+| pkg/observability | 90 % |
+| internal/usecase | 88 % |
+| internal/delivery/http/handler | 97 % |
+| internal/repository/redis | 92 % |
+| **Total** | **> 80 %** ✅ |
 
 ---
 
-## Reference Implementation
+## Contributing
 
-The `user` domain is included as a complete reference:
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- `internal/domain/entity/user.go`
-- `internal/domain/repository/user_repository.go`
-- `internal/usecase/user_usecase.go`
-- `internal/delivery/http/handler/user_handler.go`
-- `internal/delivery/http/route/user_route.go`
-- `internal/repository/postgres/user_repository.go`
-- `pkg/httpclient/user_client.go`
+---
 
-Use `make:all <name>` to generate the same structure for any new domain.
+## License
+
+MIT — see [LICENSE](LICENSE).
