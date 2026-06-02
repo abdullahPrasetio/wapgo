@@ -7,10 +7,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [0.7.0-beta.1] — 2026-06-02
+
 ### Added
-- `pkg/response` — expanded test coverage: message body, nil data, status assertions
-- `internal/delivery/http/middleware` — unit tests for SecurityHeaders, CORS, RateLimiter, RequestID, Recover
-- `internal/repository/postgres` — unit tests with go-sqlmock (FindByID, FindAll, Create, Update, Delete, ExistsByEmail)
+- `pkg/response` — expanded test coverage: status code, message body, nil-data omission
+- `internal/delivery/http/middleware` — unit tests for SecurityHeaders, CORS, RateLimiter, RequestID, Recover (11 cases)
+- `internal/repository/db` — unit tests with go-sqlmock: FindByID, FindAll, Create, Update, Delete, ExistsByEmail (11 cases)
+- `CHANGELOG.md` — this file, following Keep a Changelog format
+- `HIGHLIGHTS.md` — framework strengths and comparison table vs generic boilerplate
+- `.github/workflows/release.yml` — GitHub Actions release workflow: builds CLI for linux/darwin × amd64/arm64, uploads tarballs + checksums to GitHub Releases
+
+### Changed
+- `internal/repository/postgres/` → `internal/repository/db/` — renamed to driver-agnostic name; GORM query code is identical for MySQL and Postgres, driver selection remains in `pkg/database` via `DB_DRIVER` env var
+- `config/config.go` — default `DB_DRIVER` changed `postgres` → `mysql`; default `DB_PORT` changed `5432` → `3306`; default `OBSERVABILITY_PROVIDER` changed `otel` → `elastic_apm`
+- CLI `make:repo` — output path updated to `internal/repository/db/`, template renamed to `repository.go.tmpl`
+- `internal/domain/repository/doc.go` — dependency diagram updated to reflect `repository/db`
 
 ---
 
