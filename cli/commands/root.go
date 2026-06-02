@@ -3,12 +3,22 @@ package commands
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
 
-// Version is set at build time via ldflags: -X 'github.com/abdullahPrasetio/wapgo/cli/commands.Version=x.y.z'
+// Version is set via ldflags at build time. Falls back to the module version
+// embedded by the Go toolchain when installed via go install @version.
 var Version = "dev"
+
+func init() {
+	if Version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			Version = info.Main.Version
+		}
+	}
+}
 
 // rootCmd is the base command for the wapgo CLI.
 var rootCmd = &cobra.Command{
