@@ -32,7 +32,7 @@
 ## 1. Instalasi CLI
 
 ```bash
-go install github.com/abdullahPrasetio/wapgo/cli/cmd@latest
+go install github.com/abdullahPrasetio/wapgo/cli/wapgo@latest
 ```
 
 Setelah install, binary `wapgo` tersedia di `$GOPATH/bin`. Verifikasi:

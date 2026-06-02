@@ -46,7 +46,7 @@ jobs:
           go build -C cli \
             -ldflags="-s -w -X 'github.com/abdullahPrasetio/wapgo/cli/commands.Version=${{ github.ref_name }}'" \
             -o ../dist/${{ env.BINARY }}_${{ github.ref_name }}_${{ matrix.os }}_${{ matrix.arch }}/${{ env.BINARY }} \
-            ./cmd
+            ./wapgo
 
       - name: Package tarball
         run: |

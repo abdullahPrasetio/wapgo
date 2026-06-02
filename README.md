@@ -15,7 +15,7 @@
 
 ```bash
 # 1. Install the CLI
-go install github.com/abdullahPrasetio/wapgo/cli/cmd@latest   # → binary `wapgo`
+go install github.com/abdullahPrasetio/wapgo/cli/wapgo@latest
 
 # 2. Scaffold a new service
 wapgo new my-service --module github.com/me/my-service

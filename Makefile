@@ -14,10 +14,10 @@ build:
 cli-build:
 	CGO_ENABLED=0 go build -C cli \
 		-ldflags="-s -w -X 'github.com/abdullahPrasetio/wapgo/cli/commands.Version=$(shell git describe --tags --always 2>/dev/null || echo dev)'" \
-		-o ../bin/wapgo ./cmd
+		-o ../bin/wapgo ./wapgo
 
 cli-install:
-	go install -C cli -ldflags="-s -w" ./cmd
+	go install -C cli -ldflags="-s -w" ./wapgo
 
 # ── Testing ────────────────────────────────────────────────────────────────────
 

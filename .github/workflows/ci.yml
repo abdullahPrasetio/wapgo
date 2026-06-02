@@ -154,7 +154,7 @@ jobs:
         run: |
           CGO_ENABLED=0 go build -C cli \
             -ldflags="-s -w -X 'github.com/abdullahPrasetio/wapgo/cli/commands.Version=${{ github.ref_name }}'" \
-            -o ../bin/wapgo ./cmd
+            -o ../bin/wapgo ./wapgo
 
   # ── 7. Docker build + Trivy image scan ───────────────────────────────────────
   docker:
