@@ -8,12 +8,22 @@ A microservice built with [wapgo](https://github.com/abdullahPrasetio/wapgo) —
 # 1. Copy and configure environment variables
 cp .env.example .env
 
-# 2. Start dependencies (Postgres/MySQL, Redis, Kafka, RabbitMQ)
+# 2. Start dependencies ([[if eq .DB "mysql"]]MySQL[[else]]PostgreSQL[[end]][[if .Redis]], Redis[[end]][[if .Kafka]], Kafka[[end]][[if .RabbitMQ]], RabbitMQ[[end]])
 make docker-up
 
 # 3. Run the service
 make run
 ```
+
+## Enabled features
+
+| Feature | Status |
+|---|---|
+| Database | [[if eq .DB "mysql"]]MySQL[[else]]PostgreSQL[[end]] |
+| Redis cache | [[if .Redis]]✓ enabled[[else]]— (add later with `wapgo add redis`)[[end]] |
+| Kafka | [[if .Kafka]]✓ enabled[[else]]— (add later with `wapgo add kafka`)[[end]] |
+| RabbitMQ | [[if .RabbitMQ]]✓ enabled[[else]]— (add later with `wapgo add rabbitmq`)[[end]] |
+| Observability | [[if eq .APM "none"]]disabled[[else]][[.APM]][[end]] |
 
 The service starts on `http://localhost:8080`.
 
@@ -88,7 +98,7 @@ Key variables:
 | `APP_ENV` | `development` | `development` or `production` |
 | `APP_PORT` | `8080` | HTTP listen port |
 | `DB_DRIVER` | `[[.DB]]` | `postgres` or `mysql` |
-| `OBSERVABILITY_PROVIDER` | `otel` | `otel` or `elastic_apm` |
+| `OBSERVABILITY_PROVIDER` | `[[.APM]]` | `otel`, `elastic_apm`, or `none` |
 
 ## Module
 

@@ -8,28 +8,26 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/redis/go-redis/v9"
 )
 
 type Checker func(ctx context.Context) string
 
 type HealthHandler struct {
-	db          *sql.DB
-	redisClient *redis.Client
-	extras      map[string]Checker
-	startTime   time.Time
-	version     string
+	db        *sql.DB
+	extras    map[string]Checker
+	startTime time.Time
+	version   string
 }
 
-func NewHealthHandler(db *sql.DB, rc *redis.Client, startTime time.Time, version string) *HealthHandler {
+func NewHealthHandler(db *sql.DB, startTime time.Time, version string) *HealthHandler {
 	return &HealthHandler{
-		db:          db,
-		redisClient: rc,
-		startTime:   startTime,
-		version:     version,
+		db:        db,
+		startTime: startTime,
+		version:   version,
 	}
 }
 
+// AddChecker registers an additional dependency health check (redis, kafka, …).
 func (h *HealthHandler) AddChecker(name string, fn Checker) *HealthHandler {
 	if h.extras == nil {
 		h.extras = make(map[string]Checker)
@@ -51,16 +49,6 @@ func (h *HealthHandler) Check(c *fiber.Ctx) error {
 		httpCode = fiber.StatusServiceUnavailable
 	} else {
 		services["database"] = "ok"
-	}
-
-	redisCtx, redisCancel := context.WithTimeout(c.UserContext(), 2*time.Second)
-	defer redisCancel()
-	if err := h.redisClient.Ping(redisCtx).Err(); err != nil {
-		services["redis"] = "down"
-		overall = "degraded"
-		httpCode = fiber.StatusServiceUnavailable
-	} else {
-		services["redis"] = "ok"
 	}
 
 	for name, check := range h.extras {

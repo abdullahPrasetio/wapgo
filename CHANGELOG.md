@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.0] — 2026-06-02
+
+### Added
+- CLI `wapgo new` — interactive project wizard (powered by `charmbracelet/huh`): prompts for project name, module path, database (PostgreSQL/MySQL), observability provider (Elastic APM / OpenTelemetry / None), and optional features (Redis, Kafka, RabbitMQ) via a multi-select. Falls back to flag/default-driven non-interactive mode with `--yes` (or automatically when stdin is not a TTY) for CI use.
+- CLI `wapgo add <feature>` — add an optional capability (`redis`, `kafka`, `rabbitmq`) to an existing project after scaffolding; copies the feature's source files, never overwrites existing files (idempotent), and prints the manual wiring steps for `cmd/api/main.go`, `.env`, and `docker-compose.yml`.
+- Conditional scaffolding — `wapgo new` now generates only the files for selected features. Skeleton files for disabled features (Redis cache, Kafka, RabbitMQ) are omitted, and `cmd/api/main.go`, `docker-compose.yml`, and `.env.example` are rendered with feature-aware conditionals. Only the chosen database service appears in `docker-compose.yml`, and `DB_PORT` defaults to the right port (3306 for MySQL, 5432 for PostgreSQL).
+- Styled CLI output — `wapgo new` / `wapgo add` print a colored summary and next-steps block via `charmbracelet/lipgloss`.
+
+### Changed
+- Scaffold now strips the `//go:build ignore` guard from generated Go files (the guard exists only to keep skeleton sources out of the CLI module build).
+- Skeleton `internal/delivery/http/handler/health_handler.go` — refactored to be Redis-agnostic: the Redis ping is registered as a regular `AddChecker("redis", …)` from `main.go` only when Redis is enabled, instead of being a hard-coded dependency of the handler.
+- `wapgo new` flags: added `--apm`, `--redis`, `--kafka`, `--rabbitmq`, `--yes/-y`; `--db` no longer defaults eagerly (the wizard/`--yes` path applies the default).
+
+---
+
 ## [0.8.0] — 2026-06-02
 
 ### Added

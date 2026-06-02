@@ -44,6 +44,7 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newNewCmd())
+	rootCmd.AddCommand(newAddCmd())
 	rootCmd.AddCommand(newMakeModelCmd())
 	rootCmd.AddCommand(newMakeRepoCmd())
 	rootCmd.AddCommand(newMakeUsecaseCmd())

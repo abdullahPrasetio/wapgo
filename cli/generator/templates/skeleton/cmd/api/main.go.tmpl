@@ -1,5 +1,3 @@
-//go:build ignore
-
 package main
 
 import (
@@ -11,22 +9,28 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+[[- if .Redis ]]
 	"github.com/redis/go-redis/v9"
+[[- end ]]
 	"github.com/rs/zerolog/log"
 
-	"github.com/abdullahPrasetio/wapgo/config"
-	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/handler"
-	mw "github.com/abdullahPrasetio/wapgo/internal/delivery/http/middleware"
-	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/route"
-	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
-	dbrepo "github.com/abdullahPrasetio/wapgo/internal/repository/db"
-	"github.com/abdullahPrasetio/wapgo/internal/usecase"
-	"github.com/abdullahPrasetio/wapgo/pkg/database"
-	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
-	kafkamsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
-	rabbitmqmsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/rabbitmq"
-	"github.com/abdullahPrasetio/wapgo/pkg/observability"
-	"github.com/abdullahPrasetio/wapgo/pkg/validator"
+	"[[.Module]]/config"
+	"[[.Module]]/internal/delivery/http/handler"
+	mw "[[.Module]]/internal/delivery/http/middleware"
+	"[[.Module]]/internal/delivery/http/route"
+	"[[.Module]]/internal/domain/entity"
+	dbrepo "[[.Module]]/internal/repository/db"
+	"[[.Module]]/internal/usecase"
+	"[[.Module]]/pkg/database"
+	applogger "[[.Module]]/pkg/logger"
+[[- if .Kafka ]]
+	kafkamsg "[[.Module]]/pkg/messaging/kafka"
+[[- end ]]
+[[- if .RabbitMQ ]]
+	rabbitmqmsg "[[.Module]]/pkg/messaging/rabbitmq"
+[[- end ]]
+	"[[.Module]]/pkg/observability"
+	"[[.Module]]/pkg/validator"
 )
 
 const version = "0.1.0"
@@ -41,7 +45,7 @@ func main() {
 	log.Info().Str("version", version).Str("env", cfg.App.Env).
 		Str("observability", cfg.Observability.Provider).Msg("starting service")
 
-	// Observability provider: "otel" (default) or "elastic_apm"
+	// Observability provider: "otel", "elastic_apm", or "none"
 	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to setup observability provider")
@@ -64,9 +68,11 @@ func main() {
 			log.Fatal().Err(err).Msg("auto-migrate failed")
 		}
 	}
+[[- if .Redis ]]
 
 	redisClient := newRedisClient(&cfg.Redis)
 	obsProvider.InstrumentRedis(redisClient)
+[[- end ]]
 
 	userRepo := dbrepo.NewUserRepository(db)
 	userUC := usecase.NewUserUseCase(userRepo)
@@ -74,19 +80,34 @@ func main() {
 
 	startTime := time.Now()
 	userHandler := handler.NewUserHandler(userUC, val)
-	healthHandler := handler.NewHealthHandler(sqlDB, redisClient, startTime, version)
+	healthHandler := handler.NewHealthHandler(sqlDB, startTime, version)
+[[- if .Redis ]]
+
+	healthHandler.AddChecker("redis", func(ctx context.Context) string {
+		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if err := redisClient.Ping(pingCtx).Err(); err != nil {
+			return "down"
+		}
+		return "ok"
+	})
+[[- end ]]
+[[- if .Kafka ]]
 
 	if cfg.Kafka.Brokers != "" {
 		healthHandler.AddChecker("kafka", kafkamsg.HealthCheck(cfg.Kafka.Brokers))
 	} else {
 		healthHandler.AddChecker("kafka", func(_ context.Context) string { return "not_configured" })
 	}
+[[- end ]]
+[[- if .RabbitMQ ]]
 
 	if cfg.RabbitMQ.DSN != "" {
 		healthHandler.AddChecker("rabbitmq", rabbitmqmsg.HealthCheck(cfg.RabbitMQ.DSN))
 	} else {
 		healthHandler.AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
 	}
+[[- end ]]
 
 	app := fiber.New(fiber.Config{
 		AppName:               cfg.App.Name,
@@ -142,12 +163,15 @@ func main() {
 	if err := obsProvider.Shutdown(shutCtx); err != nil {
 		log.Error().Err(err).Msg("observability provider shutdown error")
 	}
+[[- if .Redis ]]
 
 	redisClient.Close() //nolint:errcheck
-	sqlDB.Close()       //nolint:errcheck
+[[- end ]]
+	sqlDB.Close() //nolint:errcheck
 
 	log.Info().Msg("shutdown complete")
 }
+[[- if .Redis ]]
 
 func newRedisClient(cfg *config.RedisConfig) *redis.Client {
 	opts, err := redis.ParseURL(cfg.URL)
@@ -162,3 +186,4 @@ func newRedisClient(cfg *config.RedisConfig) *redis.Client {
 	}
 	return redis.NewClient(opts)
 }
+[[- end ]]
