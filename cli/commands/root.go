@@ -8,7 +8,7 @@ import (
 )
 
 // Version is set at build time via ldflags: -X 'github.com/abdullahPrasetio/wapgo/cli/commands.Version=x.y.z'
-var Version = "0.4.0"
+var Version = "dev"
 
 // rootCmd is the base command for the wapgo CLI.
 var rootCmd = &cobra.Command{
@@ -41,4 +41,5 @@ func init() {
 	rootCmd.AddCommand(newMakeRouteCmd())
 	rootCmd.AddCommand(newMakeClientCmd())
 	rootCmd.AddCommand(newMakeAllCmd())
+	rootCmd.AddCommand(newMakeMigrationCmd())
 }

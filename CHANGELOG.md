@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.0] — 2026-06-02
+
+### Added
+- CLI `make:migration <name>` — generate a timestamped up/down SQL migration file pair in `migrations/` following the golang-migrate convention (`{timestamp}_{name}.up.sql` / `.down.sql`). Supports snake_case, PascalCase, and kebab-case input; generates a GORM-compatible CREATE TABLE skeleton (UUID PK, soft-delete column, index).
+- `pkg/response` — `Paginated()` helper and `PaginatedResponse` / `PageMeta` types for list endpoints; `total_pages` computed automatically from `total` and `per_page`; zero-safe (perPage=0 → totalPages=0).
+- CLI skeleton (`wapgo new`) — generates `README.md` with project name, module path, quick-start, make targets, project structure, and configuration reference; `DB` driver value injected from `--db` flag.
+
+---
+
 ## [0.7.0] — 2026-06-02
 
 ### Added

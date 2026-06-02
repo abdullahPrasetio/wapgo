@@ -121,3 +121,45 @@ func TestUnauthorized(t *testing.T) {
 	assert.Equal(t, false, body["status"])
 	assert.Equal(t, "unauthorized", body["message"])
 }
+
+func TestPaginated(t *testing.T) {
+	app := newApp(func(c *fiber.Ctx) error {
+		return response.Paginated(c, "ok", []string{"a", "b"}, 2, 10, 25)
+	})
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusOK, code)
+	assert.Equal(t, true, body["status"])
+	assert.Equal(t, "ok", body["message"])
+	assert.NotNil(t, body["data"])
+
+	pg, ok := body["pagination"].(map[string]interface{})
+	require.True(t, ok, "pagination field should be an object")
+	assert.Equal(t, float64(2), pg["page"])
+	assert.Equal(t, float64(10), pg["per_page"])
+	assert.Equal(t, float64(25), pg["total"])
+	assert.Equal(t, float64(3), pg["total_pages"]) // ceil(25/10) = 3
+}
+
+func TestPaginated_FirstPage(t *testing.T) {
+	app := newApp(func(c *fiber.Ctx) error {
+		return response.Paginated(c, "ok", []string{"x"}, 1, 10, 5)
+	})
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusOK, code)
+
+	pg := body["pagination"].(map[string]interface{})
+	assert.Equal(t, float64(1), pg["page"])
+	assert.Equal(t, float64(1), pg["total_pages"]) // ceil(5/10) = 1
+}
+
+func TestPaginated_ZeroResults(t *testing.T) {
+	app := newApp(func(c *fiber.Ctx) error {
+		return response.Paginated(c, "empty", []string{}, 1, 10, 0)
+	})
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusOK, code)
+
+	pg := body["pagination"].(map[string]interface{})
+	assert.Equal(t, float64(0), pg["total"])
+	assert.Equal(t, float64(0), pg["total_pages"])
+}

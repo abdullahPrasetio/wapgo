@@ -13,11 +13,13 @@ build:
 
 cli-build:
 	CGO_ENABLED=0 go build -C cli \
-		-ldflags="-s -w -X 'github.com/abdullahPrasetio/wapgo/cli/commands.Version=$(shell git describe --tags --always 2>/dev/null || echo dev)'" \
+		-ldflags="-s -w -X 'github.com/abdullahPrasetio/wapgo/cli/commands.Version=$(shell git describe --tags --match 'cli/v*' --always 2>/dev/null | sed 's|^cli/||' || echo dev)'" \
 		-o ../bin/wapgo ./wapgo
 
 cli-install:
-	go install -C cli -ldflags="-s -w" ./wapgo
+	go install -C cli \
+		-ldflags="-s -w -X 'github.com/abdullahPrasetio/wapgo/cli/commands.Version=$(shell git describe --tags --match 'cli/v*' --always 2>/dev/null | sed 's|^cli/||' || echo dev)'" \
+		./wapgo
 
 # ── Testing ────────────────────────────────────────────────────────────────────
 

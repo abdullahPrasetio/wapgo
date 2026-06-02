@@ -102,10 +102,11 @@ Dokumen ini adalah peta jalan pengembangan framework. Acuan spesifikasi: [`promp
 - [x] `wapgo new <project>` — buat project baru lengkap dari template (folder, `go.mod` dengan module path kustom, semua file core v0.1–v0.3, reference domain user). Flag: `--module github.com/me/svc`, `--db postgres|mysql`.
 - [x] Template seluruh skeleton di-*embed* ke binary via `//go:embed all:templates` (`cli/generator/templates/`) → `wapgo new` jalan tanpa akses jaringan.
 - [x] `wapgo version`.
-- [ ] Distribusi: `go install github.com/abdullahPrasetio/wapgo/cli/cmd@latest` (binary `wapgo`) + `install.sh` untuk unduh rilis biner.
+- [x] Distribusi: `go install github.com/abdullahPrasetio/wapgo/cli/cmd@latest` (binary `wapgo`) + `install.sh` untuk unduh rilis biner + `.github/workflows/release.yml` (cross-compile linux/darwin × amd64/arm64, upload tarball ke GitHub Releases).
 
 **Generator `make:*` (di dalam project):**
 - [x] `make:model`, `make:repo`, `make:usecase`, `make:controller`, `make:route`, `make:client`, `make:all`.
+- [x] `make:migration <name>` — generate timestamped up/down SQL file pair (`{ts}_{name}.up.sql` / `.down.sql`) di `migrations/`; GORM-compatible CREATE TABLE skeleton (UUID PK, soft-delete).
 - [x] Template-based codegen mengikuti pola reference user; argumen `<name>` snake_case → struct/interface/method. Delimiter `[[` `]]` (no conflict dengan Go code).
 - [x] `make:all <name>` jalankan generator berurutan + cetak ringkasan file yang dibuat.
 
