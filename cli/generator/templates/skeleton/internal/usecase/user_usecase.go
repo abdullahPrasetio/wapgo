@@ -18,7 +18,9 @@ import (
 	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
 )
 
-var tracer = otel.Tracer("user-usecase")
+// userTracer is named per-domain so usecases generated later (wapgo make:usecase)
+// can declare their own tracer in this package without a redeclaration collision.
+var userTracer = otel.Tracer("user-usecase")
 
 type CreateUserRequest struct {
 	Name     string `json:"name"     validate:"required,min=2,max=100"`
@@ -48,7 +50,7 @@ func NewUserUseCase(repo domainrepo.UserRepository) UserUseCase {
 }
 
 func (u *userUseCase) GetUser(ctx context.Context, id string) (*entity.User, error) {
-	ctx, span := tracer.Start(ctx, "GetUser")
+	ctx, span := userTracer.Start(ctx, "GetUser")
 	defer span.End()
 	span.SetAttributes(attribute.String("user.id", id))
 
@@ -71,7 +73,7 @@ func (u *userUseCase) GetUser(ctx context.Context, id string) (*entity.User, err
 }
 
 func (u *userUseCase) ListUsers(ctx context.Context) ([]*entity.User, error) {
-	ctx, span := tracer.Start(ctx, "ListUsers")
+	ctx, span := userTracer.Start(ctx, "ListUsers")
 	defer span.End()
 
 	users, err := u.repo.FindAll(ctx)
@@ -84,7 +86,7 @@ func (u *userUseCase) ListUsers(ctx context.Context) ([]*entity.User, error) {
 }
 
 func (u *userUseCase) CreateUser(ctx context.Context, req *CreateUserRequest) (*entity.User, error) {
-	ctx, span := tracer.Start(ctx, "CreateUser")
+	ctx, span := userTracer.Start(ctx, "CreateUser")
 	defer span.End()
 
 	exists, err := u.repo.ExistsByEmail(ctx, req.Email)
@@ -118,7 +120,7 @@ func (u *userUseCase) CreateUser(ctx context.Context, req *CreateUserRequest) (*
 }
 
 func (u *userUseCase) UpdateUser(ctx context.Context, id string, req *UpdateUserRequest) (*entity.User, error) {
-	ctx, span := tracer.Start(ctx, "UpdateUser")
+	ctx, span := userTracer.Start(ctx, "UpdateUser")
 	defer span.End()
 	span.SetAttributes(attribute.String("user.id", id))
 
@@ -164,7 +166,7 @@ func (u *userUseCase) UpdateUser(ctx context.Context, id string, req *UpdateUser
 }
 
 func (u *userUseCase) DeleteUser(ctx context.Context, id string) error {
-	ctx, span := tracer.Start(ctx, "DeleteUser")
+	ctx, span := userTracer.Start(ctx, "DeleteUser")
 	defer span.End()
 	span.SetAttributes(attribute.String("user.id", id))
 

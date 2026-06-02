@@ -15,7 +15,9 @@ import (
 	domainrepo "[[.Module]]/internal/domain/repository"
 )
 
-var tracer = otel.Tracer("[[.Snake]]-usecase")
+// [[.Camel]]Tracer is unique per domain so multiple generated usecases can
+// coexist in the same package without a redeclaration collision.
+var [[.Camel]]Tracer = otel.Tracer("[[.Snake]]-usecase")
 
 // --- DTOs ---
 
@@ -50,7 +52,7 @@ func New[[.Pascal]]UseCase(repo domainrepo.[[.Pascal]]Repository) [[.Pascal]]Use
 }
 
 func (u *[[.Camel]]UseCase) Get[[.Pascal]](ctx context.Context, id string) (*entity.[[.Pascal]], error) {
-	ctx, span := tracer.Start(ctx, "Get[[.Pascal]]")
+	ctx, span := [[.Camel]]Tracer.Start(ctx, "Get[[.Pascal]]")
 	defer span.End()
 	span.SetAttributes(attribute.String("[[.Snake]].id", id))
 
@@ -73,7 +75,7 @@ func (u *[[.Camel]]UseCase) Get[[.Pascal]](ctx context.Context, id string) (*ent
 }
 
 func (u *[[.Camel]]UseCase) List[[.Pascal]]s(ctx context.Context) ([]*entity.[[.Pascal]], error) {
-	ctx, span := tracer.Start(ctx, "List[[.Pascal]]s")
+	ctx, span := [[.Camel]]Tracer.Start(ctx, "List[[.Pascal]]s")
 	defer span.End()
 
 	items, err := u.repo.FindAll(ctx)
@@ -86,7 +88,7 @@ func (u *[[.Camel]]UseCase) List[[.Pascal]]s(ctx context.Context) ([]*entity.[[.
 }
 
 func (u *[[.Camel]]UseCase) Create[[.Pascal]](ctx context.Context, req *Create[[.Pascal]]Request) (*entity.[[.Pascal]], error) {
-	ctx, span := tracer.Start(ctx, "Create[[.Pascal]]")
+	ctx, span := [[.Camel]]Tracer.Start(ctx, "Create[[.Pascal]]")
 	defer span.End()
 
 	e := &entity.[[.Pascal]]{}
@@ -99,7 +101,7 @@ func (u *[[.Camel]]UseCase) Create[[.Pascal]](ctx context.Context, req *Create[[
 }
 
 func (u *[[.Camel]]UseCase) Update[[.Pascal]](ctx context.Context, id string, req *Update[[.Pascal]]Request) (*entity.[[.Pascal]], error) {
-	ctx, span := tracer.Start(ctx, "Update[[.Pascal]]")
+	ctx, span := [[.Camel]]Tracer.Start(ctx, "Update[[.Pascal]]")
 	defer span.End()
 	span.SetAttributes(attribute.String("[[.Snake]].id", id))
 
@@ -128,7 +130,7 @@ func (u *[[.Camel]]UseCase) Update[[.Pascal]](ctx context.Context, id string, re
 }
 
 func (u *[[.Camel]]UseCase) Delete[[.Pascal]](ctx context.Context, id string) error {
-	ctx, span := tracer.Start(ctx, "Delete[[.Pascal]]")
+	ctx, span := [[.Camel]]Tracer.Start(ctx, "Delete[[.Pascal]]")
 	defer span.End()
 	span.SetAttributes(attribute.String("[[.Snake]].id", id))
 

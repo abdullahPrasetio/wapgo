@@ -9,6 +9,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.10.0] — 2026-06-02
+
+### Added
+- `pkg/observability` — **OTel → Elastic APM bridge**: when `OBSERVABILITY_PROVIDER=elastic_apm`, an
+  `apmotel` TracerProvider is installed as the global OTel provider, so spans created via
+  `otel.Tracer(...)` (including in generated usecases) are forwarded to Elastic APM and nested under the
+  apmfiber transaction. Previously these spans were silently dropped under the Elastic backend.
+- `pkg/observability.StartSpan(ctx, name) (context.Context, func())` — provider-agnostic helper for
+  manual spans; works for OTel, Elastic APM (via the bridge), and `none` (no-op).
+- CLI skeleton now vendors `pkg/observability` and `pkg/auth` as source, and `go.mod.tmpl` gained the
+  OpenTelemetry, Elastic APM (`apm/v2`, `apmfiber`, `apmhttp`, `apmotel`), Prometheus, `redisotel`,
+  `otelgorm`, and `golang-jwt/jwt/v5` dependencies — **generated projects now compile out of the box**
+  (`go mod tidy && go build ./...`) for every `--apm` choice.
+
+### Fixed
+- `pkg/observability` setup — `OBSERVABILITY_PROVIDER=none` now returns the no-op provider instead of
+  falling through to the OTel branch, so tracing is genuinely disabled.
+- Generated usecases — the package-level OTel `tracer` var is now named per-domain
+  (`<domain>Tracer`), so multiple usecases generated into the same package
+  (e.g. `make:all user` + `make:all product`) no longer fail to compile with `tracer redeclared`.
+- CLI `make:client` template — documented how to wire `Options.TransportWrapper = obsProvider.WrapTransport`
+  so outgoing third-party calls are recorded as APM/OTel child spans.
+
+---
+
 ## [0.9.0] — 2026-06-02
 
 ### Added

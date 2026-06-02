@@ -21,6 +21,16 @@ type [[.Pascal]]Client struct {
 }
 
 // New[[.Pascal]]Client creates a [[.Pascal]]Client pointing at baseURL (<NAME>_SERVICE_URL config key).
+//
+// To record outgoing calls as APM/OTel child spans, wire the observability
+// provider's transport wrapper from cmd/api/main.go:
+//
+//	client := httpclient.New[[.Pascal]]Client(cfg.Services.[[.Pascal]]URL, httpclient.Options{
+//	    TransportWrapper: obsProvider.WrapTransport,
+//	})
+//
+// The wrapper works for every backend (OTel exports spans; Elastic APM receives
+// them via the apmotel bridge; "none" is a no-op).
 func New[[.Pascal]]Client(baseURL string, opts Options) *[[.Pascal]]Client {
 	return &[[.Pascal]]Client{client: New(opts), baseURL: baseURL}
 }
