@@ -131,7 +131,7 @@ func (w *dailyWriter) rotate(today string) error {
 		w.f.Close() //nolint:errcheck
 	}
 	path := filepath.Join(w.dir, w.base+"-"+today+".log")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600) // #nosec G304 -- path is dir+datestamp, no user input
 	if err != nil {
 		return err
 	}

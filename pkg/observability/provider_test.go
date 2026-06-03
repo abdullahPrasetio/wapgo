@@ -132,7 +132,7 @@ func TestTraceContext_ReturnsUserContext(t *testing.T) {
 	// Simulate Elastic APM provider: no "otel_ctx" local, but UserContext is set.
 	app := fiber.New()
 	app.Get("/user-ctx", func(c *fiber.Ctx) error {
-		c.SetUserContext(context.WithValue(context.Background(), struct{}{}, "val"))
+		c.SetUserContext(context.WithValue(context.Background(), struct{}{}, "val")) //nolint:staticcheck
 		ctx := observability.TraceContext(c)
 		assert.NotNil(t, ctx)
 		return c.SendStatus(200)

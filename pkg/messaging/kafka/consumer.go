@@ -146,7 +146,7 @@ func healthCheckWithDialer(brokers string, dial func(context.Context, string) (k
 		if err != nil {
 			return fmt.Sprintf("down: %v", err)
 		}
-		conn.Close()
+		conn.Close() //nolint:errcheck
 		return "ok"
 	}
 }

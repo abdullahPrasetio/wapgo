@@ -35,7 +35,7 @@ func main() {
 	}
 	fmt.Printf("Subject : %s\n", claims.Subject)
 	fmt.Printf("Roles   : %v\n", claims.Roles)
-	fmt.Printf("Expires : %s\n", claims.ExpiresAt.Time.Format(time.RFC3339))
+	fmt.Printf("Expires : %s\n", claims.ExpiresAt.Time.Format(time.RFC3339)) //nolint:staticcheck
 
 	// ── alg:none rejection demo ───────────────────────────────────────────────
 	_, err = auth.Verify("eyJhbGciOiJub25lIn0.e30.", cfg)

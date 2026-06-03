@@ -216,7 +216,7 @@ func (c *Client) Get(ctx context.Context, url string) (*http.Response, []byte, e
 	if err != nil {
 		return nil, nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return resp, nil, fmt.Errorf("httpclient: read body: %w", err)

@@ -68,7 +68,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		// 5xx — drain and close body, then retry.
 		io.Copy(io.Discard, resp.Body) //nolint:errcheck
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 		lastStatus = resp.StatusCode
 	}
 

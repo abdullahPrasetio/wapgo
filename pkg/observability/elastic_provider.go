@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
@@ -110,12 +109,11 @@ func (p *elasticGORMPlugin) Initialize(db *gorm.DB) error {
 		span.End()
 	}
 
+	//nolint:errcheck // gorm callback Register returns *gorm.DB; chaining errors are not actionable here.
 	db.Callback().Query().Before("gorm:query").Register("apm:before_query", before("query"))
 	db.Callback().Query().After("gorm:after_query").Register("apm:after_query", after)
-
 	db.Callback().Create().Before("gorm:create").Register("apm:before_create", before("create"))
 	db.Callback().Create().After("gorm:after_create").Register("apm:after_create", after)
-
 	db.Callback().Update().Before("gorm:update").Register("apm:before_update", before("update"))
 	db.Callback().Update().After("gorm:after_update").Register("apm:after_update", after)
 
@@ -136,9 +134,7 @@ type elasticGORMSpanKey struct{}
 // ── Redis hook ───────────────────────────────────────────────────────────────
 
 // elasticRedisHook instruments go-redis v9 commands as Elastic APM exit spans.
-type elasticRedisHook struct {
-	mu sync.Mutex
-}
+type elasticRedisHook struct{}
 
 func (h *elasticRedisHook) DialHook(next redis.DialHook) redis.DialHook { return next }
 

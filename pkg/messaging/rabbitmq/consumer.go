@@ -219,7 +219,7 @@ func healthCheckWithDialer(dsn string, dial func(string) (amqpConnCloser, error)
 		if err != nil {
 			return fmt.Sprintf("down: %v", err)
 		}
-		conn.Close()
+		conn.Close() //nolint:errcheck
 		return "ok"
 	}
 }

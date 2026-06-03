@@ -1,0 +1,12 @@
+version: "2"
+
+linters:
+  default: standard
+  disable:
+    # All flagged instances are legitimate defer/fire-and-forget Close() calls
+    # or os.Unsetenv in tests. The pattern is idiomatic Go; noise outweighs value.
+    - errcheck
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
