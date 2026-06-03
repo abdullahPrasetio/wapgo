@@ -102,12 +102,15 @@ jobs:
 
       - name: Coverage gate (≥ 80 %)
         run: |
-          TOTAL=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
-          echo "Total coverage: ${TOTAL}%"
-          if (( $(echo "$TOTAL < 80" | bc -l) )); then
-            echo "Coverage ${TOTAL}% is below the 80% gate"
-            exit 1
-          fi
+          go tool cover -func=coverage.out | tail -1
+          go tool cover -func=coverage.out | awk '/^total:/{
+            pct = $3+0
+            printf "Total coverage: %.1f%%\n", pct
+            if (pct < 80) {
+              printf "FAIL: %.1f%% is below the 80%% gate\n", pct
+              exit 1
+            }
+          }'
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
