@@ -1,5 +1,5 @@
 .PHONY: run build cli-build cli-install test test-race coverage lint sec docker-up docker-down \
-        docker-build docker-push migrate tidy check integration
+        docker-build docker-push migrate tidy check integration docs list
 
 # ── Service ────────────────────────────────────────────────────────────────────
 
@@ -75,6 +75,14 @@ docker-push: docker-build
 	docker push ghcr.io/abdullahprasetio/wapgo:latest
 
 # ── Misc ───────────────────────────────────────────────────────────────────────
+
+docs:
+	swag init -g cmd/api/main.go -o docs --parseDependency --parseInternal
+	@echo "Swagger docs generated → docs/swagger.json"
+
+list:
+	@echo "Generated domains:"
+	@ls internal/usecase/*_usecase.go 2>/dev/null | sed 's|internal/usecase/||;s|_usecase.go||' | sort | sed 's/^/  • /'
 
 migrate:
 	go run cmd/api/main.go migrate

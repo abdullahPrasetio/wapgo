@@ -1,0 +1,39 @@
+package event
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"[[.Module]]/pkg/messaging/kafka"
+)
+
+// [[.Pascal]]Event is the payload published to Kafka for [[.Snake]] domain events.
+type [[.Pascal]]Event struct {
+	Type    string      `json:"type"`    // e.g. "[[.Snake]].created"
+	Payload interface{} `json:"payload"` // domain entity or DTO
+}
+
+// [[.Pascal]]Producer publishes [[.Snake]] domain events to Kafka.
+type [[.Pascal]]Producer struct {
+	producer kafka.Producer
+	topic    string
+}
+
+// New[[.Pascal]]Producer creates a producer for [[.Table]] events.
+func New[[.Pascal]]Producer(p kafka.Producer, topic string) *[[.Pascal]]Producer {
+	return &[[.Pascal]]Producer{producer: p, topic: topic}
+}
+
+// Publish publishes a typed event to the configured Kafka topic.
+func (p *[[.Pascal]]Producer) Publish(ctx context.Context, eventType string, payload interface{}) error {
+	ev := [[.Pascal]]Event{Type: eventType, Payload: payload}
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return fmt.Errorf("marshal [[.Snake]] event: %w", err)
+	}
+	if err := p.producer.Publish(ctx, p.topic, data); err != nil {
+		return fmt.Errorf("publish [[.Snake]] event: %w", err)
+	}
+	return nil
+}

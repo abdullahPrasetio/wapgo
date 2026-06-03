@@ -103,7 +103,8 @@ func main() {
 	// ── Handlers ─────────────────────────────────────────────────────────────
 	startTime := time.Now()
 	userHandler := handler.NewUserHandler(userUC, val)
-	healthHandler := handler.NewHealthHandler(sqlDB, redisClient, startTime, version)
+	probeTimeout, _ := time.ParseDuration(cfg.Health.ProbeTimeout)
+	healthHandler := handler.NewHealthHandler(sqlDB, redisClient, startTime, version, probeTimeout)
 
 	if cfg.Kafka.Brokers != "" {
 		healthHandler.AddChecker("kafka", kafkamsg.HealthCheck(cfg.Kafka.Brokers))

@@ -17,6 +17,14 @@ type Config struct {
 	Services      ServiceURLs         `mapstructure:"services"`
 	JWT           JWTConfig           `mapstructure:"jwt"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
+	Health        HealthConfig        `mapstructure:"health"`
+}
+
+// HealthConfig controls health check probe behaviour.
+type HealthConfig struct {
+	// ProbeTimeout is the per-dependency timeout (DB ping, Redis ping, extras).
+	// Env: HEALTH_PROBE_TIMEOUT (Go duration string, e.g. "2s"). Default: "2s".
+	ProbeTimeout string `mapstructure:"probe_timeout"`
 }
 
 // JWTConfig holds parameters for HS256 token signing and verification.
@@ -142,6 +150,7 @@ func Load() (*Config, error) {
 		"observability.provider":        "OBSERVABILITY_PROVIDER",
 		"observability.tracing_enabled": "OTEL_TRACING_ENABLED",
 		"observability.otlp_endpoint":   "OTEL_EXPORTER_OTLP_ENDPOINT",
+		"health.probe_timeout":          "HEALTH_PROBE_TIMEOUT",
 	}
 	for key, env := range bindings {
 		if err := v.BindEnv(key, env); err != nil {
@@ -177,6 +186,7 @@ func Load() (*Config, error) {
 	v.SetDefault("jwt.expiry", "24h")
 	v.SetDefault("observability.provider", "elastic_apm")
 	v.SetDefault("observability.tracing_enabled", false)
+	v.SetDefault("health.probe_timeout", "2s")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

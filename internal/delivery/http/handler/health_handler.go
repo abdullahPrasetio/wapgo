@@ -15,21 +15,27 @@ type Checker func(ctx context.Context) string
 
 // HealthHandler checks the liveness of downstream dependencies.
 type HealthHandler struct {
-	db          *sql.DB
-	redisClient *redis.Client
-	extras      map[string]Checker // additional probes (kafka, rabbitmq, …)
-	startTime   time.Time
-	version     string
+	db           *sql.DB
+	redisClient  *redis.Client
+	extras       map[string]Checker // additional probes (kafka, rabbitmq, …)
+	startTime    time.Time
+	version      string
+	probeTimeout time.Duration
 }
 
 // NewHealthHandler creates a HealthHandler with DB and Redis probes.
+// probeTimeout sets the per-dependency ping budget (0 → defaults to 2s).
 // Additional probes can be registered afterwards via AddChecker.
-func NewHealthHandler(db *sql.DB, rc *redis.Client, startTime time.Time, version string) *HealthHandler {
+func NewHealthHandler(db *sql.DB, rc *redis.Client, startTime time.Time, version string, probeTimeout time.Duration) *HealthHandler {
+	if probeTimeout <= 0 {
+		probeTimeout = 2 * time.Second
+	}
 	return &HealthHandler{
-		db:          db,
-		redisClient: rc,
-		startTime:   startTime,
-		version:     version,
+		db:           db,
+		redisClient:  rc,
+		startTime:    startTime,
+		version:      version,
+		probeTimeout: probeTimeout,
 	}
 }
 
@@ -55,8 +61,8 @@ func (h *HealthHandler) Check(c *fiber.Ctx) error {
 	overall := "ok"
 	httpCode := fiber.StatusOK
 
-	// DB ping (2-second budget)
-	dbCtx, dbCancel := context.WithTimeout(c.UserContext(), 2*time.Second)
+	// DB ping
+	dbCtx, dbCancel := context.WithTimeout(c.UserContext(), h.probeTimeout)
 	defer dbCancel()
 	if err := h.db.PingContext(dbCtx); err != nil {
 		services["database"] = "down"
@@ -66,8 +72,8 @@ func (h *HealthHandler) Check(c *fiber.Ctx) error {
 		services["database"] = "ok"
 	}
 
-	// Redis ping (2-second budget)
-	redisCtx, redisCancel := context.WithTimeout(c.UserContext(), 2*time.Second)
+	// Redis ping
+	redisCtx, redisCancel := context.WithTimeout(c.UserContext(), h.probeTimeout)
 	defer redisCancel()
 	if err := h.redisClient.Ping(redisCtx).Err(); err != nil {
 		services["redis"] = "down"

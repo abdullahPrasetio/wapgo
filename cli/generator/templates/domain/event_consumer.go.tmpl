@@ -1,0 +1,32 @@
+package event
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"[[.Module]]/pkg/messaging/kafka"
+)
+
+// [[.Pascal]]Consumer consumes [[.Snake]] domain events from Kafka.
+type [[.Pascal]]Consumer struct {
+	consumer *kafka.Consumer
+	topic    string
+}
+
+// New[[.Pascal]]Consumer creates a consumer for [[.Table]] events.
+func New[[.Pascal]]Consumer(c *kafka.Consumer, topic string) *[[.Pascal]]Consumer {
+	return &[[.Pascal]]Consumer{consumer: c, topic: topic}
+}
+
+// Start begins consuming events and dispatches each one to handler.
+// Blocks until ctx is cancelled.
+func (c *[[.Pascal]]Consumer) Start(ctx context.Context, handler func(ctx context.Context, ev [[.Pascal]]Event) error) error {
+	return c.consumer.Consume(ctx, []string{c.topic}, func(ctx context.Context, msg []byte) error {
+		var ev [[.Pascal]]Event
+		if err := json.Unmarshal(msg, &ev); err != nil {
+			return fmt.Errorf("unmarshal [[.Snake]] event: %w", err)
+		}
+		return handler(ctx, ev)
+	})
+}

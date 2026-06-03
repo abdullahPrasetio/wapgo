@@ -44,7 +44,7 @@ func TestHealth_Degraded_BothDown(t *testing.T) {
 	rc := openBrokenRC("59996")
 	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0")
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second)
 	req := httptest.NewRequest("GET", "/health", nil)
 	resp, err := newHealthApp(h).Test(req, 8000)
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestHealth_ResponseFields(t *testing.T) {
 	rc := openBrokenRC("59994")
 	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0")
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second)
 	req := httptest.NewRequest("GET", "/health", nil)
 	resp, err := newHealthApp(h).Test(req, 8000)
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestHealth_AddChecker_Down(t *testing.T) {
 	rc := openBrokenRC("59986")
 	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0")
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second)
 	h.AddChecker("kafka", func(_ context.Context) string { return "down" })
 
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -98,7 +98,7 @@ func TestHealth_AddChecker_NotConfigured(t *testing.T) {
 	rc := openBrokenRC("59984")
 	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0")
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second)
 	h.AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
 
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -118,7 +118,7 @@ func TestHealth_AddChecker_Chaining(t *testing.T) {
 	rc := openBrokenRC("59982")
 	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0").
+	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second).
 		AddChecker("kafka", func(_ context.Context) string { return "not_configured" }).
 		AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
 

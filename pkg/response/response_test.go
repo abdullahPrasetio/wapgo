@@ -72,12 +72,13 @@ func TestCreated(t *testing.T) {
 
 func TestError(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
-		return response.Error(c, fiber.StatusConflict, "email conflict")
+		return response.Error(c, fiber.StatusConflict, response.ErrConflict, "email conflict")
 	})
 	code, body := do(t, app)
 	assert.Equal(t, fiber.StatusConflict, code)
 	assert.Equal(t, false, body["status"])
 	assert.Equal(t, "email conflict", body["message"])
+	assert.Equal(t, string(response.ErrConflict), body["code"])
 	assert.Nil(t, body["data"])
 }
 
