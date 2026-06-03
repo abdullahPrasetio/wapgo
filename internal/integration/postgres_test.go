@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -36,10 +35,10 @@ func TestPostgresUserRepository(t *testing.T) {
 		// FIX 1: Hapus WithInitScripts() yang kosong
 		// FIX 2: Tambah wait strategy agar koneksi tidak dibuka sebelum Postgres siap
 		testcontainers.WithWaitStrategy(
-			wait.ForSQL("5432/tcp", "pgx", func(host string, port nat.Port) string {
+			wait.ForSQL("5432/tcp", "pgx", func(host string, port string) string {
 				return fmt.Sprintf(
 					"host=%s port=%s user=testuser password=testpass dbname=testdb sslmode=disable",
-					host, port.Port(),
+					host, port,
 				)
 			}).
 				WithStartupTimeout(60*time.Second).
