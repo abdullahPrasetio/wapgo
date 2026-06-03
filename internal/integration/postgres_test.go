@@ -10,9 +10,7 @@ import (
 	"testing"
 	"time"
 
-	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -32,13 +30,7 @@ func TestPostgresUserRepository(t *testing.T) {
 		tcpostgres.WithDatabase("testdb"),
 		tcpostgres.WithUsername("testuser"),
 		tcpostgres.WithPassword("testpass"),
-		// FIX 1: Hapus WithInitScripts() yang kosong
-		// FIX 2: Tambah wait strategy agar koneksi tidak dibuka sebelum Postgres siap
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
-		),
+		tcpostgres.BasicWaitStrategies(),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { pgContainer.Terminate(ctx) }) //nolint:errcheck
@@ -51,11 +43,6 @@ func TestPostgresUserRepository(t *testing.T) {
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
-
-	// FIX 3: Ping sebelum AutoMigrate untuk memastikan koneksi benar-benar aktif
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.PingContext(ctx))
 
 	// Auto-migrate the users table
 	require.NoError(t, db.AutoMigrate(&entity.User{}))
