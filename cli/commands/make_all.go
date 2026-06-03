@@ -18,6 +18,7 @@ func newMakeAllCmd() *cobra.Command {
   make:controller → HTTP handler + external service interface
   make:route      → route registration
   make:client     → inter-service HTTP client
+  make:test       → usecase + handler test boilerplate
 
 Example:
   wapgo make:all product`,
@@ -36,6 +37,8 @@ Example:
 				{"controller (handler + ext service)", runMakeController},
 				{"route      (route registration)", runMakeRoute},
 				{"client     (http client)", runMakeClient},
+				{"test:usecase (usecase test boilerplate)", runMakeTest},
+				{"test:handler (handler test boilerplate)", runMakeHandlerTest},
 			}
 
 			for _, s := range steps {

@@ -1,0 +1,267 @@
+basePath: /api/v1
+definitions:
+  github_com_abdullahPrasetio_wapgo_internal_domain_entity.User:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_abdullahPrasetio_wapgo_internal_usecase.CreateUserRequest:
+    properties:
+      email:
+        type: string
+      name:
+        maxLength: 100
+        minLength: 2
+        type: string
+      password:
+        maxLength: 72
+        minLength: 8
+        type: string
+    required:
+    - email
+    - name
+    - password
+    type: object
+  github_com_abdullahPrasetio_wapgo_internal_usecase.UpdateUserRequest:
+    properties:
+      email:
+        type: string
+      name:
+        maxLength: 100
+        minLength: 2
+        type: string
+    type: object
+  github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse:
+    properties:
+      message:
+        type: string
+      status:
+        type: boolean
+    type: object
+  github_com_abdullahPrasetio_wapgo_pkg_response.Response:
+    properties:
+      data: {}
+      message:
+        type: string
+      status:
+        type: boolean
+    type: object
+info:
+  contact:
+    name: wapgo
+    url: https://github.com/abdullahPrasetio/wapgo
+  description: Web API Platform for Go — production-ready microservice boilerplate.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: wapgo API
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      description: Returns status of all downstream dependencies (DB, Redis, Kafka,
+        RabbitMQ).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Health check
+      tags:
+      - system
+  /users:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_internal_domain_entity.User'
+                  type: array
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+      summary: List all users
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: User payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_internal_usecase.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_internal_domain_entity.User'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+      summary: Create a new user
+      tags:
+      - users
+  /users/{id}:
+    delete:
+      parameters:
+      - description: User UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+      summary: Delete user by ID
+      tags:
+      - users
+    get:
+      parameters:
+      - description: User UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_internal_domain_entity.User'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+      summary: Get user by ID
+      tags:
+      - users
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: User UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_internal_usecase.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_internal_domain_entity.User'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_abdullahPrasetio_wapgo_pkg_response.ErrorResponse'
+      summary: Update user by ID
+      tags:
+      - users
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    description: Bearer <token>
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

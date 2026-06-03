@@ -53,4 +53,5 @@ func init() {
 	rootCmd.AddCommand(newMakeClientCmd())
 	rootCmd.AddCommand(newMakeAllCmd())
 	rootCmd.AddCommand(newMakeMigrationCmd())
+	rootCmd.AddCommand(newMakeTestCmd())
 }

@@ -1,0 +1,130 @@
+package usecase_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+
+	"[[.Module]]/internal/domain/entity"
+	"[[.Module]]/internal/usecase"
+)
+
+// mock[[.Pascal]]Repository is a hand-written mock for domainrepo.[[.Pascal]]Repository.
+type mock[[.Pascal]]Repository struct{ mock.Mock }
+
+func (m *mock[[.Pascal]]Repository) FindByID(ctx context.Context, id uuid.UUID) (*entity.[[.Pascal]], error) {
+	args := m.Called(ctx, id)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.[[.Pascal]]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mock[[.Pascal]]Repository) FindAll(ctx context.Context) ([]*entity.[[.Pascal]], error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.[[.Pascal]]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mock[[.Pascal]]Repository) Create(ctx context.Context, e *entity.[[.Pascal]]) error {
+	return m.Called(ctx, e).Error(0)
+}
+
+func (m *mock[[.Pascal]]Repository) Update(ctx context.Context, e *entity.[[.Pascal]]) error {
+	return m.Called(ctx, e).Error(0)
+}
+
+func (m *mock[[.Pascal]]Repository) Delete(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *mock[[.Pascal]]Repository) ExistsByEmail(ctx context.Context, email string) (bool, error) {
+	args := m.Called(ctx, email)
+	return args.Bool(0), args.Error(1)
+}
+
+// --- Tests ---
+
+func Test[[.Pascal]]UseCase_Get[[.Pascal]]_OK(t *testing.T) {
+	repo := new(mock[[.Pascal]]Repository)
+	uc := usecase.New[[.Pascal]]UseCase(repo)
+	ctx := context.Background()
+
+	id := uuid.New()
+	want := &entity.[[.Pascal]]{ID: id}
+	repo.On("FindByID", ctx, id).Return(want, nil)
+
+	got, err := uc.Get[[.Pascal]](ctx, id.String())
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
+	repo.AssertExpectations(t)
+}
+
+func Test[[.Pascal]]UseCase_Get[[.Pascal]]_NotFound(t *testing.T) {
+	repo := new(mock[[.Pascal]]Repository)
+	uc := usecase.New[[.Pascal]]UseCase(repo)
+	ctx := context.Background()
+
+	id := uuid.New()
+	repo.On("FindByID", ctx, id).Return(nil, usecase.Err[[.Pascal]]NotFound)
+
+	_, err := uc.Get[[.Pascal]](ctx, id.String())
+	assert.ErrorIs(t, err, usecase.Err[[.Pascal]]NotFound)
+	repo.AssertExpectations(t)
+}
+
+func Test[[.Pascal]]UseCase_Get[[.Pascal]]_InvalidUUID(t *testing.T) {
+	uc := usecase.New[[.Pascal]]UseCase(new(mock[[.Pascal]]Repository))
+	_, err := uc.Get[[.Pascal]](context.Background(), "not-a-uuid")
+	assert.ErrorIs(t, err, usecase.Err[[.Pascal]]InvalidUUID)
+}
+
+func Test[[.Pascal]]UseCase_List[[.Pascal]]s_OK(t *testing.T) {
+	repo := new(mock[[.Pascal]]Repository)
+	uc := usecase.New[[.Pascal]]UseCase(repo)
+	ctx := context.Background()
+
+	want := []*entity.[[.Pascal]]{{ID: uuid.New()}}
+	repo.On("FindAll", ctx).Return(want, nil)
+
+	got, err := uc.List[[.Pascal]]s(ctx)
+	assert.NoError(t, err)
+	assert.Len(t, got, 1)
+	repo.AssertExpectations(t)
+}
+
+func Test[[.Pascal]]UseCase_Create[[.Pascal]]_OK(t *testing.T) {
+	repo := new(mock[[.Pascal]]Repository)
+	uc := usecase.New[[.Pascal]]UseCase(repo)
+	ctx := context.Background()
+
+	req := &usecase.Create[[.Pascal]]Request{
+		// TODO: populate required fields
+	}
+	repo.On("Create", ctx, mock.AnythingOfType("*entity.[[.Pascal]]")).Return(nil)
+
+	got, err := uc.Create[[.Pascal]](ctx, req)
+	assert.NoError(t, err)
+	assert.NotNil(t, got)
+	repo.AssertExpectations(t)
+}
+
+func Test[[.Pascal]]UseCase_Delete[[.Pascal]]_OK(t *testing.T) {
+	repo := new(mock[[.Pascal]]Repository)
+	uc := usecase.New[[.Pascal]]UseCase(repo)
+	ctx := context.Background()
+
+	id := uuid.New()
+	existing := &entity.[[.Pascal]]{ID: id}
+	repo.On("FindByID", ctx, id).Return(existing, nil)
+	repo.On("Delete", ctx, id).Return(nil)
+
+	err := uc.Delete[[.Pascal]](ctx, id.String())
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}

@@ -1,0 +1,208 @@
+package handler_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"[[.Module]]/internal/delivery/http/handler"
+	"[[.Module]]/internal/domain/entity"
+	"[[.Module]]/internal/usecase"
+	"[[.Module]]/pkg/validator"
+)
+
+// mock[[.Pascal]]UC is a simple struct-based mock for usecase.[[.Pascal]]UseCase.
+type mock[[.Pascal]]UC struct {
+	item *entity.[[.Pascal]]
+	list []*entity.[[.Pascal]]
+	err  error
+}
+
+func (m *mock[[.Pascal]]UC) Get[[.Pascal]](_ context.Context, _ string) (*entity.[[.Pascal]], error) {
+	return m.item, m.err
+}
+func (m *mock[[.Pascal]]UC) List[[.Pascal]]s(_ context.Context) ([]*entity.[[.Pascal]], error) {
+	return m.list, m.err
+}
+func (m *mock[[.Pascal]]UC) Create[[.Pascal]](_ context.Context, _ *usecase.Create[[.Pascal]]Request) (*entity.[[.Pascal]], error) {
+	return m.item, m.err
+}
+func (m *mock[[.Pascal]]UC) Update[[.Pascal]](_ context.Context, _ string, _ *usecase.Update[[.Pascal]]Request) (*entity.[[.Pascal]], error) {
+	return m.item, m.err
+}
+func (m *mock[[.Pascal]]UC) Delete[[.Pascal]](_ context.Context, _ string) error {
+	return m.err
+}
+
+// test[[.Pascal]]App wires the handler onto a minimal Fiber app.
+func test[[.Pascal]]App(h *handler.[[.Pascal]]Handler) *fiber.App {
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app.Get("/[[.Table]]/:id", h.Get[[.Pascal]])
+	app.Get("/[[.Table]]", h.List[[.Pascal]]s)
+	app.Post("/[[.Table]]", h.Create[[.Pascal]])
+	app.Put("/[[.Table]]/:id", h.Update[[.Pascal]])
+	app.Delete("/[[.Table]]/:id", h.Delete[[.Pascal]])
+	return app
+}
+
+func fake[[.Pascal]]() *entity.[[.Pascal]] {
+	return &entity.[[.Pascal]]{}
+}
+
+func [[.Camel]]JSONBody(t *testing.T, v interface{}) *bytes.Buffer {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	return bytes.NewBuffer(b)
+}
+
+// ── Get[[.Pascal]] ──────────────────────────────────────────────────────────────
+
+func TestGet[[.Pascal]]_200(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{item: fake[[.Pascal]]()}, validator.New())
+	req := httptest.NewRequest("GET", "/[[.Table]]/some-id", nil)
+	resp, err := test[[.Pascal]]App(h).Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+}
+
+func TestGet[[.Pascal]]_NotFound(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: usecase.Err[[.Pascal]]NotFound}, validator.New())
+	req := httptest.NewRequest("GET", "/[[.Table]]/some-id", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 404, resp.StatusCode)
+}
+
+func TestGet[[.Pascal]]_InvalidUUID(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: usecase.Err[[.Pascal]]InvalidUUID}, validator.New())
+	req := httptest.NewRequest("GET", "/[[.Table]]/bad", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 400, resp.StatusCode)
+}
+
+func TestGet[[.Pascal]]_InternalError(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: errors.New("db down")}, validator.New())
+	req := httptest.NewRequest("GET", "/[[.Table]]/some-id", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 500, resp.StatusCode)
+}
+
+// ── List[[.Pascal]]s ────────────────────────────────────────────────────────────
+
+func TestList[[.Pascal]]s_200(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{list: []*entity.[[.Pascal]]{fake[[.Pascal]]()}}, validator.New())
+	req := httptest.NewRequest("GET", "/[[.Table]]", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 200, resp.StatusCode)
+}
+
+func TestList[[.Pascal]]s_InternalError(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: errors.New("err")}, validator.New())
+	req := httptest.NewRequest("GET", "/[[.Table]]", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 500, resp.StatusCode)
+}
+
+// ── Create[[.Pascal]] ───────────────────────────────────────────────────────────
+
+func TestCreate[[.Pascal]]_201(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{item: fake[[.Pascal]]()}, validator.New())
+	body := [[.Camel]]JSONBody(t, map[string]string{
+		// TODO: add required fields
+	})
+	req := httptest.NewRequest("POST", "/[[.Table]]", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 201, resp.StatusCode)
+}
+
+func TestCreate[[.Pascal]]_InvalidBody(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{}, validator.New())
+	req := httptest.NewRequest("POST", "/[[.Table]]", bytes.NewBufferString("not json{{{"))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 400, resp.StatusCode)
+}
+
+func TestCreate[[.Pascal]]_InternalError(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: errors.New("db down")}, validator.New())
+	body := [[.Camel]]JSONBody(t, map[string]string{})
+	req := httptest.NewRequest("POST", "/[[.Table]]", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 500, resp.StatusCode)
+}
+
+// ── Update[[.Pascal]] ───────────────────────────────────────────────────────────
+
+func TestUpdate[[.Pascal]]_200(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{item: fake[[.Pascal]]()}, validator.New())
+	body := [[.Camel]]JSONBody(t, map[string]string{})
+	req := httptest.NewRequest("PUT", "/[[.Table]]/some-id", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 200, resp.StatusCode)
+}
+
+func TestUpdate[[.Pascal]]_BadBody(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{item: fake[[.Pascal]]()}, validator.New())
+	req := httptest.NewRequest("PUT", "/[[.Table]]/some-id", bytes.NewBufferString("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 400, resp.StatusCode)
+}
+
+func TestUpdate[[.Pascal]]_NotFound(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: usecase.Err[[.Pascal]]NotFound}, validator.New())
+	body := [[.Camel]]JSONBody(t, map[string]string{})
+	req := httptest.NewRequest("PUT", "/[[.Table]]/some-id", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 404, resp.StatusCode)
+}
+
+func TestUpdate[[.Pascal]]_InternalError(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: errors.New("db down")}, validator.New())
+	body := [[.Camel]]JSONBody(t, map[string]string{})
+	req := httptest.NewRequest("PUT", "/[[.Table]]/some-id", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 500, resp.StatusCode)
+}
+
+// ── Delete[[.Pascal]] ───────────────────────────────────────────────────────────
+
+func TestDelete[[.Pascal]]_200(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{}, validator.New())
+	req := httptest.NewRequest("DELETE", "/[[.Table]]/some-id", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 200, resp.StatusCode)
+}
+
+func TestDelete[[.Pascal]]_NotFound(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: usecase.Err[[.Pascal]]NotFound}, validator.New())
+	req := httptest.NewRequest("DELETE", "/[[.Table]]/some-id", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 404, resp.StatusCode)
+}
+
+func TestDelete[[.Pascal]]_InvalidUUID(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: usecase.Err[[.Pascal]]InvalidUUID}, validator.New())
+	req := httptest.NewRequest("DELETE", "/[[.Table]]/bad-id", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 400, resp.StatusCode)
+}
+
+func TestDelete[[.Pascal]]_InternalError(t *testing.T) {
+	h := handler.New[[.Pascal]]Handler(&mock[[.Pascal]]UC{err: errors.New("db down")}, validator.New())
+	req := httptest.NewRequest("DELETE", "/[[.Table]]/some-id", nil)
+	resp, _ := test[[.Pascal]]App(h).Test(req)
+	assert.Equal(t, 500, resp.StatusCode)
+}

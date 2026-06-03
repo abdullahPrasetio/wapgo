@@ -149,6 +149,17 @@ Dokumen ini adalah peta jalan pengembangan framework. Acuan spesifikasi: [`promp
 
 **DoD:** ✅ `go build ./...` bersih; `go test ./...` hijau; `OBSERVABILITY_PROVIDER=elastic_apm` → Elastic APM agent aktif (env-driven); `OBSERVABILITY_PROVIDER=otel` → OTel SDK aktif; kedua provider instrument DB + Redis + HTTP client + HTTP server; CLI generator menghasilkan project dengan tracing siap pakai.
 
+### Fase v1.1 — DX Polish ✅ SELESAI (2026-06-03)
+
+**Tujuan:** Melengkapi developer experience: API docs interaktif, halaman landing, dan generator test lengkap.
+
+- [x] **Swagger/OpenAPI** — `github.com/gofiber/swagger` + `swaggo/swag`; anotasi `@Summary/@Router` di semua handler; `docs/` di-generate via `swag init`; route `/docs/*` dijaga `prodGuard` (404 di production).
+- [x] **Welcome page** — `GET /` mengembalikan JSON `{service, version, env, links}`; `links` hanya tampilkan `/docs` dan `/metrics` di non-production.
+- [x] **`wapgo make:test`** — generate usecase test boilerplate (mock repository, 5 test case per domain); flag `--layer handler` generate handler test (mock usecase, httptest, semua HTTP status); keduanya otomatis ikut `wapgo make:all`.
+- [x] CLI skeleton template diperbarui: `router.go` sudah include `/`, `/docs/*`, dan import `gofiber/swagger`; `main.go.tmpl` sudah import `docs` package.
+
+**DoD:** ✅ `go build ./...` bersih; `go test ./...` hijau; `swag init` menghasilkan `docs/swagger.json`; `/docs/index.html` aktif di dev, 404 di production.
+
 ### Fase v1.0 — Hardening & Rilis ✅ SELESAI (2026-06-02)
 
 **Tujuan:** Siap rilis, terverifikasi, terdokumentasi.

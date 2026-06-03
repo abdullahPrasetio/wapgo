@@ -1,3 +1,16 @@
+// @title           wapgo API
+// @version         1.0.0
+// @description     Web API Platform for Go — production-ready microservice boilerplate.
+// @contact.name    wapgo
+// @contact.url     https://github.com/abdullahPrasetio/wapgo
+// @license.name    MIT
+// @license.url     https://opensource.org/licenses/MIT
+// @BasePath        /api/v1
+// @schemes         http https
+// @securityDefinitions.apikey BearerAuth
+// @in              header
+// @name            Authorization
+// @description     Bearer <token>
 package main
 
 import (
@@ -13,6 +26,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/abdullahPrasetio/wapgo/config"
+	_ "github.com/abdullahPrasetio/wapgo/docs" // swagger generated docs
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/handler"
 	mw "github.com/abdullahPrasetio/wapgo/internal/delivery/http/middleware"
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/route"
@@ -27,7 +41,7 @@ import (
 	"github.com/abdullahPrasetio/wapgo/pkg/validator"
 )
 
-const version = "0.6.0"
+const version = "1.0.0"
 
 func main() {
 	// ── Config ───────────────────────────────────────────────────────────────

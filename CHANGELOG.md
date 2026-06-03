@@ -9,6 +9,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.1.0] — 2026-06-03
+
+### Added
+- **Swagger/OpenAPI docs** (`/docs`) — `github.com/gofiber/swagger` + `swaggo/swag`; full `@Summary`,
+  `@Router`, `@Param`, `@Success`, `@Failure` annotations on all user and health handlers; `docs/`
+  directory generated via `swag init -g cmd/api/main.go --parseDependency --parseInternal`.
+  Route `/docs/*` is guarded by `prodGuard` — returns 404 in production, Swagger UI in all other envs.
+- **Welcome page** (`GET /`) — lightweight JSON landing: `{service, version, env, links}`.
+  In production `links` only exposes `/health`; in dev/staging also exposes `/docs` and `/metrics`.
+- **`wapgo make:test`** — new CLI generator with two layers:
+  - `--layer usecase` (default) — usecase unit tests with a hand-written `mock.Mock` repository;
+    covers `Get*_OK`, `Get*_NotFound`, `Get*_InvalidUUID`, `List*_OK`, `Create*_OK`, `Delete*_OK`.
+  - `--layer handler` — HTTP handler tests using a struct-based mock usecase + `httptest`;
+    covers all five CRUD operations, invalid body, validation failure, and each error status code.
+  - Both layers are generated automatically by `wapgo make:all <name>`.
+- CLI skeleton `internal/delivery/http/route/router.go` updated: includes `GET /`, `GET /docs/*`
+  (prodGuard), and `github.com/gofiber/swagger` import; `cmd/api/main.go.tmpl` imports `docs` package.
+
+---
+
 ## [0.11.1] — 2026-06-03
 
 ### Fixed

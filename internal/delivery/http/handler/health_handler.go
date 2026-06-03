@@ -42,9 +42,14 @@ func (h *HealthHandler) AddChecker(name string, fn Checker) *HealthHandler {
 	return h
 }
 
-// Check handles GET /health.
-// Returns HTTP 200 when all probes report "ok" or "not_configured",
-// HTTP 503 when any probe reports "down".
+// Check godoc
+// @Summary      Health check
+// @Description  Returns status of all downstream dependencies (DB, Redis, Kafka, RabbitMQ).
+// @Tags         system
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      503  {object}  map[string]interface{}
+// @Router       /health [get]
 func (h *HealthHandler) Check(c *fiber.Ctx) error {
 	services := make(map[string]string)
 	overall := "ok"
