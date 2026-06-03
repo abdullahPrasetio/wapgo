@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.11.1] — 2026-06-03
+
+### Fixed
+- `pkg/logger` — data race on global sink variables: concurrent calls to `SetupSinks` (writes) and
+  `API()`/`Consumer()`/`ThirdParty()`/`Trace()` (reads) caused a detected race under `-race` on Linux
+  CI. Fixed by replacing plain `zerolog.Logger` vars with `atomic.Pointer[zerolog.Logger]`-backed
+  `sinkHolder`, making all reads and writes lock-free and race-safe.
+- CI — `golangci-lint-action@v6` rejects version strings of the form `v2.x.x` (golangci-lint v2 not
+  supported); upgraded to `golangci-lint-action@v7`.
+- CI — Go toolchain upgraded from `1.25.8` to `1.25.11`; Go 1.25.0–1.25.10 carry 28+ active stdlib
+  CVEs that `govulncheck` flags; all are resolved in 1.25.11.
+- CI — test command now excludes packages without test files (`examples/`, `cmd/`) to prevent the
+  `go: no such tool "covdata"` error on downloaded toolchains.
+
+---
+
 ## [0.11.0] — 2026-06-03
 
 ### Added

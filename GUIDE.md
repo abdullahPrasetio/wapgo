@@ -15,12 +15,13 @@
 5. [Generator CLI — Make Commands](#5-generator-cli--make-commands)
 6. [Konfigurasi ENV](#6-konfigurasi-env)
 7. [Paket pkg/ — Referensi Cepat](#7-paket-pkg--referensi-cepat)
-   - [logger](#71-logger)
-   - [auth (JWT)](#72-auth-jwt)
-   - [httpclient](#73-httpclient)
-   - [messaging — Kafka](#74-messaging--kafka)
-   - [messaging — RabbitMQ](#75-messaging--rabbitmq)
-   - [observability](#76-observability)
+   - [logger (4 sinks)](#71-logger-4-sinks)
+   - [journal (request journal)](#72-journal-request-journal)
+   - [auth (JWT)](#73-auth-jwt)
+   - [httpclient](#74-httpclient)
+   - [messaging — Kafka](#75-messaging--kafka)
+   - [messaging — RabbitMQ](#76-messaging--rabbitmq)
+   - [observability](#77-observability)
 8. [Observability: OTel vs Elastic APM](#8-observability-otel-vs-elastic-apm)
 9. [Health Check](#9-health-check)
 10. [Makefile Commands](#10-makefile-commands)
@@ -191,11 +192,11 @@ Semua konfigurasi dibaca dari ENV (atau `.env`). Prioritas: `ENV → config.yaml
 
 | ENV | Default | Keterangan |
 |---|---|---|
-| `DB_DRIVER` | `postgres` | `postgres` / `mysql` |
+| `DB_DRIVER` | `mysql` | `postgres` / `mysql` |
 | `DB_HOST` | `localhost` | |
-| `DB_PORT` | `5432` | |
+| `DB_PORT` | `3306` | |
 | `DB_NAME` | `wapgo_db` | |
-| `DB_USER` | `postgres` | |
+| `DB_USER` | `root` | |
 | `DB_PASSWORD` | *(kosong)* | |
 | `DB_MAX_OPEN_CONNS` | `25` | Connection pool |
 | `DB_MAX_IDLE_CONNS` | `5` | |
@@ -235,9 +236,19 @@ Semua konfigurasi dibaca dari ENV (atau `.env`). Prioritas: `ENV → config.yaml
 
 | ENV | Default | Keterangan |
 |---|---|---|
-| `OBSERVABILITY_PROVIDER` | `otel` | `otel` / `elastic_apm` |
+| `OBSERVABILITY_PROVIDER` | `elastic_apm` | `otel` / `elastic_apm` / `none` |
 | `OTEL_TRACING_ENABLED` | `false` | Aktifkan OTel tracing |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *(kosong)* | OTLP endpoint (Jaeger, Tempo, dll) |
+
+### Logging (pkg/logger)
+
+| ENV | Default | Keterangan |
+|---|---|---|
+| `LOG_DIR` | `logs` | Direktori 4 file log terstruktur |
+| `LOG_ROTATION` | `size` | `size` (lumberjack 100 MB) atau `daily` (per tanggal) |
+| `LOG_MAX_AGE_DAYS` | `30` | Retensi file log dalam hari |
+| `LOG_HTTP_BODIES` | `false` | Catat body request/response di `api.log` |
+| `LOG_BODY_MAX_BYTES` | `8192` | Batas ukuran body yang dicatat (byte) |
 
 Untuk Elastic APM (jika `OBSERVABILITY_PROVIDER=elastic_apm`):
 
@@ -253,23 +264,63 @@ Untuk Elastic APM (jika `OBSERVABILITY_PROVIDER=elastic_apm`):
 
 ## 7. Paket `pkg/` — Referensi Cepat
 
-### 7.1 logger
+### 7.1 logger (4 sinks)
+
+`pkg/logger` mengelola empat file log terstruktur secara bersamaan: `api.log`, `consumer.log`,
+`thirdparty.log`, dan `trace.log`. Setiap file adalah JSON line-delimited.
 
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/logger"
 
-log := logger.New(cfg.Logger)
+// Inisialisasi di main.go (satu kali)
+if err := logger.SetupSinks(logger.SinkConfig{
+    Dir:        "logs",       // default "logs"
+    Rotation:   "size",       // "size" (lumberjack) atau "daily" (date-stamped)
+    MaxSizeMB:  100,
+    MaxAgeDays: 30,
+    Console:    true,         // juga echo ke stdout (dev)
+}); err != nil {
+    log.Fatal().Err(err).Msg("failed to setup log sinks")
+}
 
-// Log dengan request ID dari context
-log.Info().Str("user_id", id).Msg("user fetched")
-
-// Gunakan logger request-scoped (dari middleware)
-logger.FromContext(ctx).Error().Err(err).Msg("operation failed")
+// Akses logger per kategori
+logger.API().Info().Str("method", "GET").Str("path", "/users").Msg("request")
+logger.Consumer().Info().Str("topic", "user.events").Msg("message received")
+logger.ThirdParty().Info().Str("url", "https://api.example.com").Msg("outbound call")
+logger.Trace().Info().Str("name", "risk-score").Msg("custom trace")
 ```
 
-Output JSON di produksi, console di development. Rotasi file otomatis via lumberjack.
+Mode rotasi dikontrol via ENV `LOG_ROTATION`:
+- `size` (default) — lumberjack, rotasi per `LOG_MAX_SIZE_MB`, retensi `LOG_MAX_AGE_DAYS` hari.
+- `daily` — file berstempel tanggal (`api-2026-06-03.log`), rotasi tengah malam, retensi `LOG_MAX_AGE_DAYS` hari.
 
-### 7.2 auth (JWT)
+### 7.2 journal (request journal)
+
+`pkg/journal` mengumpulkan semua hit thirdparty dan custom trace yang terjadi selama satu request/pesan
+ke dalam satu record induk. Semua entry juga ditulis ke file sink masing-masing (dual-write).
+
+```go
+import "github.com/abdullahPrasetio/wapgo/pkg/journal"
+
+// Di middleware (dilakukan otomatis oleh AccessLog middleware):
+ctx, j := journal.Start(ctx, "api")
+defer j.Finish() // menulis 1 baris JSON ke api.log berisi thirdparty[] + trace[]
+
+// Di httpclient (dilakukan otomatis bila journal ada di ctx):
+// → AddThirdParty dipanggil otomatis, masuk ke thirdparty[] induk + thirdparty.log
+
+// Di usecase / handler (custom trace):
+journal.FromContext(ctx).AddTrace("risk-score", map[string]any{
+    "score": 0.87,
+    "user":  userID,
+})
+// → masuk ke trace[] induk + trace.log
+```
+
+Redaksi header sensitif (Authorization, Cookie, Set-Cookie) dan pembatasan ukuran body dilakukan
+secara otomatis. Gate `LOG_HTTP_BODIES=true` diperlukan agar body request/response dicatat.
+
+### 7.3 auth (JWT)
 
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/auth"
@@ -297,7 +348,7 @@ func handler(c *fiber.Ctx) error {
 
 Hardening: algoritma di-pin ke HS256, validasi `exp`/`iat`/`iss`/`aud`, `alg:none` ditolak, secret ≥ 32 byte.
 
-### 7.3 httpclient
+### 7.4 httpclient
 
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/httpclient"
@@ -315,7 +366,7 @@ resp, err := client.Do(ctx, http.MethodGet, "/users/123", nil)
 
 Bawaan: retry (3x, exponential backoff), circuit breaker (open setelah 5 gagal), TLS verify ON, SSRF guard, timeout per-request.
 
-### 7.4 messaging — Kafka
+### 7.5 messaging — Kafka
 
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
@@ -345,7 +396,7 @@ kafka.HealthCheck("localhost:9092")  // return func(ctx) string
 
 `X-Request-ID` dipropagasi otomatis via Kafka header `x-request-id`.
 
-### 7.5 messaging — RabbitMQ
+### 7.6 messaging — RabbitMQ
 
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/messaging/rabbitmq"
@@ -379,7 +430,7 @@ rabbitmq.HealthCheck("amqp://guest:guest@localhost:5672/")  // return func(ctx) 
 
 DLQ (`user.events.created.dlq`) dikonfigurasi otomatis via `x-dead-letter-exchange`.
 
-### 7.6 observability
+### 7.7 observability
 
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/observability"
@@ -528,6 +579,11 @@ Semua aktif tanpa konfigurasi tambahan:
 | **v0.4** | CLI `wapgo new` + `make:all` + `make:*` generator | ✅ |
 | **v0.5** | JWT auth + RBAC, Prometheus metrics, OTel tracing dasar | ✅ |
 | **v0.6** | Provider abstraction OTel / Elastic APM, full end-to-end tracing semua layer | ✅ |
+| **v0.7** | Test coverage ≥ 80% semua layer, release workflow CI/CD | ✅ |
+| **v0.8** | `make:migration`, `pkg/response.Paginated`, skeleton README | ✅ |
+| **v0.9** | CLI wizard interaktif, `wapgo add <feature>`, conditional scaffolding | ✅ |
+| **v0.10** | OTel → Elastic APM bridge (`apmotel`), `none` provider, `StartSpan` helper, skeleton compile | ✅ |
+| **v0.11** | 4 log sinks, `pkg/journal` (dual-write), `AccessLog` middleware, consumer journal, Filebeat example | ✅ |
 
 Coverage semua paket > 80%. `go build ./...` dan `go vet ./...` bersih.
 
@@ -542,11 +598,11 @@ APP_ENV=development
 APP_PORT=8080
 
 # Database
-DB_DRIVER=postgres
+DB_DRIVER=mysql
 DB_HOST=localhost
-DB_PORT=5432
+DB_PORT=3306
 DB_NAME=mydb
-DB_USER=postgres
+DB_USER=root
 DB_PASSWORD=secret
 
 # Redis
@@ -568,16 +624,26 @@ RABBITMQ_DSN=amqp://guest:guest@localhost:5672/
 
 # Observability — pilih salah satu
 
-# Opsi 1: OTel (Jaeger / Grafana Tempo)
-OBSERVABILITY_PROVIDER=otel
-OTEL_TRACING_ENABLED=true
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+# Opsi 1: Elastic APM (Kibana) — default
+OBSERVABILITY_PROVIDER=elastic_apm
+ELASTIC_APM_SERVER_URL=http://localhost:8200
+ELASTIC_APM_SERVICE_NAME=my-service
+ELASTIC_APM_SECRET_TOKEN=
+ELASTIC_APM_ENVIRONMENT=development
+ELASTIC_APM_ACTIVE=true
 
-# Opsi 2: Elastic APM (Kibana)
-# OBSERVABILITY_PROVIDER=elastic_apm
-# ELASTIC_APM_SERVER_URL=http://localhost:8200
-# ELASTIC_APM_SERVICE_NAME=my-service
-# ELASTIC_APM_SECRET_TOKEN=
-# ELASTIC_APM_ENVIRONMENT=development
-# ELASTIC_APM_ACTIVE=true
+# Opsi 2: OTel (Jaeger / Grafana Tempo)
+# OBSERVABILITY_PROVIDER=otel
+# OTEL_TRACING_ENABLED=true
+# OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# Opsi 3: matikan tracing
+# OBSERVABILITY_PROVIDER=none
+
+# Logging (4 structured log sinks → logs/)
+LOG_DIR=logs
+LOG_ROTATION=size       # size | daily
+LOG_MAX_AGE_DAYS=30
+LOG_HTTP_BODIES=false   # true = catat body request/response di api.log
+LOG_BODY_MAX_BYTES=8192
 ```

@@ -46,12 +46,13 @@ wapgo make:all product
 | Cache | Redis |
 | Messaging | Kafka + RabbitMQ |
 | Config | Viper (ENV-first, 12-factor) |
-| Logger | zerolog (JSON prod / console dev) |
+| Logger | zerolog — 4 structured log sinks (`api`, `consumer`, `thirdparty`, `trace`) |
 | Auth | JWT HS256 + RBAC middleware |
-| Tracing | OpenTelemetry SDK + Elastic APM |
+| Tracing | OpenTelemetry SDK + Elastic APM (OTel→APM bridge via `apmotel`) |
 | Metrics | Prometheus (`/metrics`) |
+| Request Journal | `pkg/journal` — per-request `thirdparty[]` + `trace[]` embedded in parent log |
 | CLI | Cobra — `wapgo new` + `wapgo make:*` |
-| HTTP Client | net/http + retry + circuit breaker + SSRF guard |
+| HTTP Client | net/http + retry + circuit breaker + SSRF guard + journal auto-record |
 
 ---
 
@@ -126,6 +127,25 @@ wapgo version
 - **Elastic APM** — `apmfiber`, GORM + Redis + HTTP client instrumentation.
 - Switch providers via `OBSERVABILITY_PROVIDER=otel|elastic_apm`.
 
+### CLI Interactive Wizard + Migrations (v0.8–v0.9)
+- `wapgo new` — interactive wizard (charmbracelet/huh), selects DB, APM provider, Redis/Kafka/RabbitMQ; `--yes` for CI.
+- `wapgo add <feature>` — add optional features to existing project.
+- `wapgo make:migration <name>` — timestamped up/down SQL migration pair.
+- `pkg/response.Paginated()` — paginated response helper with `PageMeta`.
+
+### Observability Bridge + Generated Projects Compile (v0.10)
+- **OTel → Elastic APM bridge** — `apmotel` TracerProvider installed when `OBSERVABILITY_PROVIDER=elastic_apm`; spans from `otel.Tracer(...)` in generated usecases now forward to Elastic APM.
+- **`OBSERVABILITY_PROVIDER=none`** now genuinely disables tracing (no-op provider).
+- **`observability.StartSpan(ctx, name)`** — provider-agnostic manual span helper.
+- Generated projects now compile out of the box (`go mod tidy && go build ./...`) for all `--apm` choices.
+
+### Structured Logging + Request Journal (v0.11)
+- **4 log sinks** (`pkg/logger`) — `api.log`, `consumer.log`, `thirdparty.log`, `trace.log`. Rotation: `size` (lumberjack) or `daily` (date-stamped, midnight rollover).
+- **`pkg/journal`** — per-request/message journal stored in `context.Context`. `AddThirdParty` and `AddTrace` dual-write: append to the parent record **and** write a standalone JSON line.
+- **`AccessLog` middleware** — writes one JSON line per request to `api.log` with full request (method, url, headers, body) + full response (status, headers, body, latency) + embedded `thirdparty[]` + `trace[]`. Sensitive headers redacted; bodies size-capped.
+- **`httpclient`** — auto-records each outbound call into the request journal when one is in context.
+- **Kafka & RabbitMQ consumers** — per-message journal + APM/OTel span, structured line to `consumer.log`.
+
 ---
 
 ## Configuration
@@ -137,16 +157,21 @@ All settings are read from ENV (highest priority) → `config/config.yaml` → d
 | `APP_ENV` | `development` | `production` enables hardening mode |
 | `APP_PORT` | `8080` | HTTP listen port |
 | `APP_NAME` | `wapgo-service` | Service name (used in logs + traces) |
-| `DB_DRIVER` | `postgres` | `postgres` or `mysql` |
+| `DB_DRIVER` | `mysql` | `postgres` or `mysql` |
 | `DB_HOST` | `localhost` | Database host |
 | `DB_PASSWORD` | — | **Required in production** |
 | `JWT_SECRET` | — | **Required, min 32 bytes** |
 | `JWT_EXPIRY` | `24h` | Go duration string |
-| `OBSERVABILITY_PROVIDER` | `otel` | `otel` or `elastic_apm` |
+| `OBSERVABILITY_PROVIDER` | `elastic_apm` | `otel`, `elastic_apm`, or `none` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | e.g. `http://otel-collector:4318` |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
 | `KAFKA_BROKERS` | — | Comma-separated `host:port` |
 | `RABBITMQ_DSN` | — | `amqp://user:pass@host:5672/vhost` |
+| `LOG_DIR` | `logs` | Directory for the 4 structured log files |
+| `LOG_ROTATION` | `size` | `size` (lumberjack, 100 MB) or `daily` (date-stamped) |
+| `LOG_MAX_AGE_DAYS` | `30` | Retention in days for log files |
+| `LOG_HTTP_BODIES` | `false` | Capture full request/response bodies in `api.log` |
+| `LOG_BODY_MAX_BYTES` | `8192` | Maximum body size captured (bytes) |
 
 ---
 
@@ -214,11 +239,15 @@ See [SECURITY.md](SECURITY.md) for the full security policy and vulnerability re
 | config | 90 % |
 | pkg/auth | 92 % |
 | pkg/httpclient | 94 % |
+| pkg/journal | 85 % |
+| pkg/logger | 88 % |
 | pkg/messaging/kafka | 91 % |
 | pkg/messaging/rabbitmq | 84 % |
 | pkg/observability | 90 % |
 | internal/usecase | 88 % |
 | internal/delivery/http/handler | 97 % |
+| internal/delivery/http/middleware | 85 % |
+| internal/repository/db | 90 % |
 | internal/repository/redis | 92 % |
 | **Total** | **> 80 %** ✅ |
 

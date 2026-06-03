@@ -43,7 +43,33 @@ Ini artinya test suite berjalan dalam milidetik, bukan menit.
 
 ---
 
-## 3. Observability Production-Grade — Dua Provider, Satu Interface
+## 3. Structured Logging End-to-End — 4 Sink + Request Journal
+
+wapgo menulis log ke **empat file terstruktur** sekaligus, semuanya JSON line-delimited:
+
+| File | Isi |
+|---|---|
+| `api.log` | 1 baris per request HTTP — full req/resp headers + body + `thirdparty[]` + `trace[]` |
+| `consumer.log` | 1 baris per pesan Kafka/RabbitMQ — full payload + `thirdparty[]` + `trace[]` |
+| `thirdparty.log` | 1 baris per hit thirdparty — full outbound req/resp dengan latency |
+| `trace.log` | 1 baris per custom trace yang diinject dari usecase |
+
+**Dual-write**: thirdparty & trace ditulis ke file tersendiri **sekaligus** diembed di dalam record induk `api`/`consumer`. Tidak perlu korelasi manual — satu record `api.log` sudah memuat semua konteks.
+
+```go
+// Di usecase: inject custom trace
+journal.FromContext(ctx).AddTrace("fraud-score", map[string]any{"score": 0.92})
+
+// Hasilnya di api.log:
+// {"method":"POST","path":"/payment","thirdparty":[{"url":"https://bank.api/charge","status":200}],
+//  "trace":[{"name":"fraud-score","data":{"score":0.92}}],"latency_ms":43}
+```
+
+Semua header sensitif diredaksi otomatis (Authorization, Cookie, Set-Cookie). Body size dicap via `LOG_BODY_MAX_BYTES`. File siap dikirim ke Elasticsearch via Filebeat (contoh `deploy/filebeat.yml` sudah tersedia di skeleton).
+
+---
+
+## 4. Observability Production-Grade — Dua Provider, Satu Interface
 
 Bukan sekadar "ada logging". wapgo menyediakan tiga lapisan observability sekaligus:
 
@@ -62,7 +88,7 @@ OBSERVABILITY_PROVIDER=elastic  # kirim trace ke Elastic APM server
 
 ---
 
-## 4. CLI Code Generator — Scaffold Lengkap dalam Satu Perintah
+## 5. CLI Code Generator — Scaffold Lengkap dalam Satu Perintah
 
 Framework lain sering menyediakan struktur folder saja. wapgo menyertakan CLI yang generate **semua layer sekaligus**:
 
@@ -82,7 +108,7 @@ Developer langsung bisa fokus ke business logic, bukan konfigurasi boilerplate.
 
 ---
 
-## 5. Security Defaults — Aktif Tanpa Konfigurasi
+## 6. Security Defaults — Aktif Tanpa Konfigurasi
 
 Semua middleware keamanan aktif by default saat `Setup()` dipanggil:
 
@@ -98,7 +124,7 @@ JWT middleware siap pakai dengan `ExtractClaims` helper — tidak perlu parse to
 
 ---
 
-## 6. Messaging dengan API yang Konsisten
+## 7. Messaging dengan API yang Konsisten
 
 Kafka dan RabbitMQ punya interface yang seragam:
 
@@ -116,7 +142,7 @@ Keduanya menyediakan `HealthCheck()` yang kompatibel dengan `/health` endpoint. 
 
 ---
 
-## 7. ENV-First Config — Siap Kubernetes/OpenShift dari Hari Pertama
+## 8. ENV-First Config — Siap Kubernetes/OpenShift dari Hari Pertama
 
 Tidak ada config file yang perlu di-mount ke container. Semua konfigurasi dibaca dari environment variable:
 
@@ -131,7 +157,7 @@ Ini selaras langsung dengan Kubernetes `ConfigMap` + `Secret`, Helm values, dan 
 
 ---
 
-## 8. Multi-module Monorepo yang Bersih
+## 9. Multi-module Monorepo yang Bersih
 
 CLI dan framework core hidup di module terpisah, dihubungkan via `go.work`:
 
@@ -153,8 +179,10 @@ Keuntungannya:
 |---|---|---|
 | Layer separation | Folder saja | Dijaga di code level (interface + unexported) |
 | Testability | Perlu setup manual | Interface-first, mock langsung bisa |
-| Observability | Tidak ada / tambah sendiri | OTel + Elastic APM + Prometheus built-in |
-| Code generation | Tidak ada | CLI scaffold semua layer sekaligus |
-| Security | Tambah sendiri | Default aktif semua |
-| Messaging | Tambah sendiri | Kafka + RabbitMQ dengan API konsisten |
-| Container-ready | Perlu konfigurasi | ENV-first by design |
+| Observability | Tidak ada / tambah sendiri | OTel + Elastic APM (bridge) + Prometheus built-in |
+| Logging | `log.Printf` / satu file | 4 sink terstruktur JSON, dual-write, rotation |
+| Request Journal | Tidak ada | Thirdparty[] + trace[] otomatis embed di record induk |
+| Code generation | Tidak ada | CLI wizard interaktif + scaffold semua layer |
+| Security | Tambah sendiri | Default aktif semua + header redaction bawaan |
+| Messaging | Tambah sendiri | Kafka + RabbitMQ dengan API konsisten + journal |
+| Container-ready | Perlu konfigurasi | ENV-first by design, Filebeat example tersedia |

@@ -28,12 +28,13 @@ constructor return interface bukan struct, dan cara kerja mocking.
                     │ inject via constructor
         ┌───────────▼───────────┐
         │   delivery/http/      │  ← HTTP: handler, middleware, route
-        │   (Handler layer)     │     tahu: request, response, fiber
+        │   (Handler layer)     │     AccessLog middleware: start journal,
+        │                       │     capture req/resp, call Finish()
         └───────────┬───────────┘
                     │ panggil via interface UserUseCase
         ┌───────────▼───────────┐
         │   internal/usecase/   │  ← Business logic
-        │   (UseCase layer)     │     tahu: entity, aturan bisnis
+        │   (UseCase layer)     │     journal.FromContext(ctx).AddTrace(...)
         └───────────┬───────────┘
                     │ panggil via interface UserRepository / Cacher
         ┌───────────▼───────────┐
@@ -45,9 +46,16 @@ constructor return interface bukan struct, dan cara kerja mocking.
         │                              │
 ┌───────▼──────────┐    ┌─────────────▼──────┐
 │ repository/      │    │ repository/redis/   │
-│ postgres/        │    │ (RedisCacher)       │
+│ db/              │    │ (RedisCacher)       │
 │ (userRepository) │    │                     │
 └──────────────────┘    └─────────────────────┘
+
+Paket lintas-layer (boleh dipakai semua layer di atas):
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐
+│  pkg/logger      │  │  pkg/journal     │  │  pkg/observability   │
+│  (4 log sinks)   │  │  (request scope, │  │  (OTel / Elastic APM │
+│  SetupSinks()    │  │   ctx-stored)    │  │   bridge, StartSpan) │
+└──────────────────┘  └──────────────────┘  └──────────────────────┘
 ```
 
 **Aturan utama:** Panah dependency selalu mengarah ke dalam (ke domain).
@@ -59,9 +67,9 @@ Layer luar boleh tahu layer dalam, tapi tidak sebaliknya.
 
 Ini yang paling sering membingungkan. Ini bedanya:
 
-| | `internal/domain/repository/` | `internal/repository/postgres/` |
+| | `internal/domain/repository/` | `internal/repository/db/` |
 |---|---|---|
-| **Isi** | Interface saja | Implementasi konkret |
+| **Isi** | Interface saja | Implementasi konkret (GORM, MySQL/Postgres) |
 | **Tahu teknologi** | Tidak (tidak ada import gorm/redis) | Ya (import gorm, sql) |
 | **Siapa yang pakai** | Usecase — depend ke sini | main.go — inject ke usecase |
 | **Bisa di-mock** | Ya, cukup buat struct yang implement | Tidak perlu di-mock |
@@ -73,8 +81,8 @@ domain/repository/user_repository.go
 = "Saya butuh seseorang yang bisa FindByID, Create, Update, Delete"
   (tidak peduli caranya pakai apa)
 
-repository/postgres/user_repository.go
-= "Saya sanggup memenuhi kontrak itu, caranya pakai GORM + Postgres"
+repository/db/user_repository.go
+= "Saya sanggup memenuhi kontrak itu, caranya pakai GORM (MySQL atau Postgres)"
 ```
 
 Usecase hanya memegang kontrak. Ia tidak tahu — dan tidak perlu tahu —
@@ -88,7 +96,7 @@ Pola ini dipakai konsisten di semua layer:
 
 ```
 internal/domain/repository/user_repository.go   ← interface UserRepository
-internal/repository/postgres/user_repository.go ← implementasi konkret
+internal/repository/db/user_repository.go       ← implementasi konkret (GORM, MySQL/Postgres)
 
 internal/domain/repository/cache.go             ← interface Cacher
 internal/repository/redis/cache.go              ← implementasi konkret
@@ -105,19 +113,19 @@ bukan di sisi implementasi.
 ## 4. Kenapa Constructor Return Interface, Bukan Struct?
 
 ```go
-// Di internal/repository/postgres/user_repository.go
+// Di internal/repository/db/user_repository.go
 
 // ❌ Kalau return *userRepository (concrete):
 func NewUserRepository(db *gorm.DB) *userRepository { ... }
-// → caller harus import package postgres
-// → caller jadi tahu ini Postgres, bukan kontrak abstrak
+// → caller harus import package db
+// → caller jadi tahu ini implementasi GORM, bukan kontrak abstrak
 // → tidak bisa swap implementasi tanpa ubah caller
 
 // ✅ Yang ada sekarang — return interface:
 func NewUserRepository(db *gorm.DB) domainrepo.UserRepository { ... }
 // → caller hanya tahu tipe UserRepository (interface)
-// → caller tidak perlu import package postgres
-// → bisa diganti MySQL/in-memory tanpa ubah usecase sama sekali
+// → caller tidak perlu import package db
+// → bisa diganti MySQL/Postgres/in-memory tanpa ubah usecase sama sekali
 ```
 
 Prinsipnya: **return tipe seluas mungkin, terima parameter sesempit mungkin.**
@@ -128,7 +136,7 @@ Interface adalah tipe yang paling luas — caller tidak terikat ke implementasi 
 ## 5. Kenapa Struct Implementasi Lowercase (Unexported)?
 
 ```go
-// Di internal/repository/postgres/user_repository.go
+// Di internal/repository/db/user_repository.go
 
 type userRepository struct {   // ← huruf kecil = unexported
     db *gorm.DB
@@ -138,14 +146,14 @@ type userRepository struct {   // ← huruf kecil = unexported
 Karena struct ini adalah **detail implementasi** yang tidak boleh bocor keluar.
 
 Kalau di-export (`UserRepository` huruf besar), caller bisa langsung pakai
-struct-nya — membypass interface dan membuat coupling langsung ke Postgres.
+struct-nya — membypass interface dan membuat coupling langsung ke GORM.
 Dengan tetap unexported, satu-satunya cara pakai adalah lewat constructor
 yang return interface:
 
 ```go
 // Satu-satunya pintu masuk yang tersedia dari luar package:
-repo := postgres.NewUserRepository(db)   // tipe: domainrepo.UserRepository
-                                         // bukan *postgres.userRepository
+repo := db.NewUserRepository(gormDB)   // tipe: domainrepo.UserRepository
+                                       // bukan *db.userRepository
 ```
 
 ---
@@ -163,7 +171,7 @@ db         := database.Connect(cfg)
 redisClient := cache.Connect(cfg)
 
 // 2. Bungkus dengan implementasi repository
-userRepo  := postgres.NewUserRepository(db)     // return UserRepository (interface)
+userRepo  := db.NewUserRepository(gormDB)        // return UserRepository (interface)
 cacher    := redis.New(redisClient, "users")     // return *RedisCacher (implements Cacher)
 
 // 3. Inject ke usecase — usecase hanya menerima interface
@@ -176,8 +184,9 @@ userHandler := handler.NewUserHandler(userUC, validator.New())
 route.RegisterUserRoutes(app, userHandler, cfg)
 ```
 
-Kalau suatu saat ingin ganti Postgres ke MySQL, hanya baris nomor 2 yang
-berubah. Usecase, handler, dan route tidak perlu disentuh sama sekali.
+Kalau suatu saat ingin ganti MySQL ke Postgres (atau sebaliknya), hanya
+konfigurasi `DB_DRIVER` yang berubah — implementasi GORM di `repository/db/`
+sudah driver-agnostic. Usecase, handler, dan route tidak perlu disentuh sama sekali.
 
 ---
 
@@ -251,10 +260,12 @@ di `internal/integration/` dengan build tag `//go:build integration`.
 | Package | Boleh import | Tidak boleh import |
 |---|---|---|
 | `internal/domain/` | `entity` saja | Semua paket lain di `internal/` |
-| `internal/usecase/` | `domain/entity`, `domain/repository`, `domain/service` | `delivery/`, `repository/postgres`, `repository/redis` |
-| `internal/delivery/` | `usecase` (interface), `domain/entity`, `pkg/` | `repository/postgres`, `repository/redis` |
-| `internal/repository/postgres/` | `domain/entity`, `domain/repository`, `gorm` | `usecase/`, `delivery/` |
+| `internal/usecase/` | `domain/entity`, `domain/repository`, `domain/service`, `pkg/journal` | `delivery/`, `repository/db`, `repository/redis` |
+| `internal/delivery/` | `usecase` (interface), `domain/entity`, `pkg/` | `repository/db`, `repository/redis` |
+| `internal/repository/db/` | `domain/entity`, `domain/repository`, `gorm` | `usecase/`, `delivery/` |
 | `internal/repository/redis/` | `domain/repository` | `usecase/`, `delivery/` |
+| `pkg/journal` | `pkg/logger` | `internal/` apapun |
+| `pkg/logger` | `zerolog`, `lumberjack` | `internal/` apapun |
 | `cmd/api/main.go` | Semua | — |
 
 Kalau ada import yang melanggar tabel di atas, itu tanda ada layer yang
