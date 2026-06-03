@@ -232,6 +232,34 @@ See [SECURITY.md](SECURITY.md) for the full security policy and vulnerability re
 
 ---
 
+## Benchmark
+
+> Measured on Apple M1 (darwin/arm64) · `go run` mode · Postgres + Redis local · `wrk -t4 -c100 -d15s`
+> Production binary (`go build -ldflags="-s -w"`) on Linux will be 10–20 % faster.
+
+### HTTP Throughput
+
+| Endpoint | RPS | Avg Latency | Notes |
+|---|---|---|---|
+| `GET /` | **79,057** | 1.94 ms | Pure JSON, no I/O |
+| `GET /api/v1/users` | **12,190** | 12.85 ms | Postgres query + pagination |
+| `GET /health` | **6,815** | 18.99 ms | Probes DB + Redis each request |
+
+### Internal Package (`go test -bench=. -benchmem`)
+
+| Benchmark | ns/op | allocs/op | Throughput |
+|---|---|---|---|
+| `auth.Sign` (HS256) | 3,044 | 41 | ~328K token/s |
+| `auth.Verify` (HS256) | 4,187 | 69 | ~239K token/s |
+| `auth.Sign+Verify` (round-trip) | 6,674 | 110 | ~150K req/s |
+| `validator.Validate` (valid) | 861 | 5 | ~1.16M req/s |
+| `validator.Validate` (invalid) | 1,145 | 34 | ~873K req/s |
+| `response.Marshal` (success) | 510 | 9 | ~1.96M req/s |
+| `response.Marshal` (error) | 156 | 1 | ~6.4M req/s |
+| `response.Marshal` (paginated) | 805 | 12 | ~1.24M req/s |
+
+---
+
 ## Coverage
 
 | Package | Coverage |

@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -23,10 +25,18 @@ func SecurityHeaders() fiber.Handler {
 	})
 }
 
-// RateLimiter limits each IP to 100 requests per minute (global default).
+// RateLimiter limits each IP to 100 requests per minute by default.
+// Override with RATE_LIMIT_MAX env var (e.g. RATE_LIMIT_MAX=1000000 for load testing).
 func RateLimiter() fiber.Handler {
-	return newLimiter(100, time.Minute)
+	max := 100
+	if v := os.Getenv("RATE_LIMIT_MAX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			max = n
+		}
+	}
+	return newLimiter(max, time.Minute)
 }
+
 
 // StrictRateLimiter limits each IP to max requests per window.
 // Use on write/mutation endpoints (e.g. POST /users, POST /auth/login).
