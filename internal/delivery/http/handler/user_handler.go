@@ -7,6 +7,7 @@ import (
 
 	_ "github.com/abdullahPrasetio/wapgo/internal/domain/entity" // swag type resolution
 	"github.com/abdullahPrasetio/wapgo/internal/usecase"
+	"github.com/abdullahPrasetio/wapgo/pkg/pagination"
 	"github.com/abdullahPrasetio/wapgo/pkg/response"
 	"github.com/abdullahPrasetio/wapgo/pkg/validator"
 )
@@ -42,18 +43,23 @@ func (h *UserHandler) GetUser(c *fiber.Ctx) error {
 }
 
 // ListUsers godoc
-// @Summary      List all users
+// @Summary      List users (paginated)
 // @Tags         users
 // @Produce      json
-// @Success      200  {object}  response.Response{data=[]entity.User}
-// @Failure      500  {object}  response.ErrorResponse
+// @Param        page   query     int     false  "Page number (default 1)"
+// @Param        size   query     int     false  "Page size (default 20, max 100)"
+// @Param        sort   query     string  false  "Sort column (default created_at)"
+// @Param        order  query     string  false  "Sort order: asc or desc (default desc)"
+// @Success      200    {object}  response.PaginatedResponse{data=[]entity.User}
+// @Failure      500    {object}  response.ErrorResponse
 // @Router       /users [get]
 func (h *UserHandler) ListUsers(c *fiber.Ctx) error {
-	users, err := h.uc.ListUsers(c.UserContext())
+	req := pagination.FromQuery(c)
+	users, total, err := h.uc.ListUsersPaged(c.UserContext(), req)
 	if err != nil {
 		return response.InternalError(c)
 	}
-	return response.Success(c, "users retrieved", users)
+	return response.Paginated(c, "users retrieved", users, req.PageNum(), req.PageSize(), total)
 }
 
 // CreateUser godoc

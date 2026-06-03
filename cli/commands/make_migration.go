@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS {{table}} (
     created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     deleted_at TIMESTAMP(3) NULL,
-    -- TODO: add domain columns here
+{{columns}}
     PRIMARY KEY (id),
     INDEX idx_{{table}}_deleted_at (deleted_at)
 );
@@ -55,7 +55,13 @@ func runMakeMigration(name string) error {
 	ts := time.Now().UTC().Format("20060102150405")
 	prefix := ts + "_" + n.Snake
 
-	r := strings.NewReplacer("{{table}}", n.Table)
+	fields := generator.ParseEntityFields(n.Snake)
+	columns := generator.RenderMigrationColumns(fields)
+	if len(fields) > 0 {
+		fmt.Printf("  detected %d field(s) from entity/%s.go\n", len(fields), n.Snake)
+	}
+
+	r := strings.NewReplacer("{{table}}", n.Table, "{{columns}}", columns)
 	upPath := filepath.Join("migrations", prefix+".up.sql")
 	downPath := filepath.Join("migrations", prefix+".down.sql")
 

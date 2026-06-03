@@ -15,6 +15,7 @@ import (
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/handler"
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
 	"github.com/abdullahPrasetio/wapgo/internal/usecase"
+	"github.com/abdullahPrasetio/wapgo/pkg/pagination"
 	"github.com/abdullahPrasetio/wapgo/pkg/validator"
 )
 
@@ -40,6 +41,9 @@ func (m *mockUserUC) UpdateUser(_ context.Context, _ string, _ *usecase.UpdateUs
 }
 func (m *mockUserUC) DeleteUser(_ context.Context, _ string) error {
 	return m.err
+}
+func (m *mockUserUC) ListUsersPaged(_ context.Context, _ *pagination.Request) ([]*entity.User, int, error) {
+	return m.users, len(m.users), m.err
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -110,6 +114,22 @@ func TestListUsers_InternalError(t *testing.T) {
 	req := httptest.NewRequest("GET", "/users", nil)
 	resp, _ := testApp(h).Test(req)
 	assert.Equal(t, 500, resp.StatusCode)
+}
+
+func TestListUsers_PaginationMeta(t *testing.T) {
+	users := []*entity.User{fakeUser(), fakeUser()}
+	h := handler.NewUserHandler(&mockUserUC{users: users}, validator.New())
+	req := httptest.NewRequest("GET", "/users?page=1&size=10", nil)
+	resp, _ := testApp(h).Test(req)
+	assert.Equal(t, 200, resp.StatusCode)
+
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	pag, ok := body["pagination"].(map[string]any)
+	require.True(t, ok, "pagination key must be present")
+	assert.Equal(t, float64(1), pag["page"])
+	assert.Equal(t, float64(10), pag["per_page"])
+	assert.Equal(t, float64(2), pag["total"])
 }
 
 // ── CreateUser ────────────────────────────────────────────────────────────────

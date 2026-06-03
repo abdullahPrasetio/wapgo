@@ -12,6 +12,7 @@ import (
 
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
 	"github.com/abdullahPrasetio/wapgo/internal/usecase"
+	"github.com/abdullahPrasetio/wapgo/pkg/pagination"
 )
 
 // ── mock repository ──────────────────────────────────────────────────────────
@@ -84,6 +85,17 @@ func (m *mockUserRepo) ExistsByEmail(_ context.Context, email string) (bool, err
 		}
 	}
 	return false, nil
+}
+
+func (m *mockUserRepo) FindAllPaged(_ context.Context, _ *pagination.Request) ([]*entity.User, int, error) {
+	if m.forceErr != nil {
+		return nil, 0, m.forceErr
+	}
+	list := make([]*entity.User, 0, len(m.users))
+	for _, u := range m.users {
+		list = append(list, u)
+	}
+	return list, len(list), nil
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import (
 
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
 	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
+	"github.com/abdullahPrasetio/wapgo/pkg/pagination"
 )
 
 // --- DTOs ---
@@ -32,6 +33,7 @@ type UpdateUserRequest struct {
 type UserUseCase interface {
 	GetUser(ctx context.Context, id string) (*entity.User, error)
 	ListUsers(ctx context.Context) ([]*entity.User, error)
+	ListUsersPaged(ctx context.Context, req *pagination.Request) ([]*entity.User, int, error)
 	CreateUser(ctx context.Context, req *CreateUserRequest) (*entity.User, error)
 	UpdateUser(ctx context.Context, id string, req *UpdateUserRequest) (*entity.User, error)
 	DeleteUser(ctx context.Context, id string) error
@@ -69,6 +71,14 @@ func (u *userUseCase) ListUsers(ctx context.Context) ([]*entity.User, error) {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
 	return users, nil
+}
+
+func (u *userUseCase) ListUsersPaged(ctx context.Context, req *pagination.Request) ([]*entity.User, int, error) {
+	users, total, err := u.repo.FindAllPaged(ctx, req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list users paged: %w", err)
+	}
+	return users, total, nil
 }
 
 func (u *userUseCase) CreateUser(ctx context.Context, req *CreateUserRequest) (*entity.User, error) {

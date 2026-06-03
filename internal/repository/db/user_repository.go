@@ -10,6 +10,7 @@ import (
 
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
 	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
+	"github.com/abdullahPrasetio/wapgo/pkg/pagination"
 )
 
 // userRepository sengaja unexported agar caller tidak bisa bergantung ke
@@ -43,6 +44,20 @@ func (r *userRepository) FindAll(ctx context.Context) ([]*entity.User, error) {
 		return nil, fmt.Errorf("find all users: %w", err)
 	}
 	return users, nil
+}
+
+func (r *userRepository) FindAllPaged(ctx context.Context, req *pagination.Request) ([]*entity.User, int, error) {
+	var users []*entity.User
+	var total int64
+
+	base := r.db.WithContext(ctx).Model(&entity.User{})
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("count users: %w", err)
+	}
+	if err := base.Scopes(pagination.Scope(req)).Find(&users).Error; err != nil {
+		return nil, 0, fmt.Errorf("find all users paged: %w", err)
+	}
+	return users, int(total), nil
 }
 
 func (r *userRepository) Create(ctx context.Context, user *entity.User) error {
