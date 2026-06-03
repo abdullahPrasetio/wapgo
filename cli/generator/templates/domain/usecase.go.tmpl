@@ -91,6 +91,11 @@ func (u *[[.Camel]]UseCase) Create[[.Pascal]](ctx context.Context, req *Create[[
 	ctx, span := [[.Camel]]Tracer.Start(ctx, "Create[[.Pascal]]")
 	defer span.End()
 
+	// Inject a custom trace point into this request's journal (api.log / consumer.log
+	// "trace" array + trace.log). The call is a no-op outside an AccessLog-wrapped request:
+	//
+	//	journal.FromContext(ctx).AddTrace("[[.Snake]].create.validated", req)
+
 	e := &entity.[[.Pascal]]{}
 	if err := u.repo.Create(ctx, e); err != nil {
 		span.RecordError(err)

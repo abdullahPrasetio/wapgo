@@ -10,23 +10,32 @@ import (
 
 	"github.com/rs/zerolog"
 	kafkago "github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
 
+	"github.com/abdullahPrasetio/wapgo/pkg/journal"
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
+	"github.com/abdullahPrasetio/wapgo/pkg/observability"
 )
 
+// reader is the subset of kafkago.Reader used by Consumer (enables mocking in tests).
 type reader interface {
 	FetchMessage(ctx context.Context) (kafkago.Message, error)
 	CommitMessages(ctx context.Context, msgs ...kafkago.Message) error
 	Close() error
 }
 
+// HandlerFunc processes a single Kafka message.
+// Return non-nil to skip committing the offset (message will be re-delivered).
 type HandlerFunc func(ctx context.Context, msg Message) error
 
+// Consumer reads messages from a single Kafka topic in a consumer group.
 type Consumer struct {
 	r   reader
 	log zerolog.Logger
 }
 
+// NewConsumer creates a Consumer for one topic within a consumer group.
+// brokers is a comma-separated list of host:port addresses.
 func NewConsumer(brokers, groupID, topic string, log zerolog.Logger) *Consumer {
 	addrs := strings.Split(brokers, ",")
 	r := kafkago.NewReader(kafkago.ReaderConfig{
@@ -37,48 +46,92 @@ func NewConsumer(brokers, groupID, topic string, log zerolog.Logger) *Consumer {
 		MaxBytes:       10e6,
 		MaxWait:        500 * time.Millisecond,
 		StartOffset:    kafkago.LastOffset,
-		CommitInterval: 0,
+		CommitInterval: 0, // manual commit after handler succeeds
 	})
 	return &Consumer{r: r, log: log}
 }
 
+// Start blocks and calls handler for every message.
+// Stops gracefully when ctx is cancelled.
+// A handler error causes the message offset to be skipped (not committed).
 func (c *Consumer) Start(ctx context.Context, handler HandlerFunc) error {
 	for {
 		m, err := c.r.FetchMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil
+				return nil // graceful shutdown
 			}
 			c.log.Error().Err(err).Msg("kafka fetch message failed")
 			continue
 		}
 
-		msgCtx := applogger.WithRequestID(ctx, extractRequestID(m))
+		rid := extractRequestID(m)
+		// Continue any distributed trace propagated through the message headers.
+		msgCtx := otel.GetTextMapPropagator().Extract(
+			applogger.WithRequestID(ctx, rid), ExtractCarrier(m.Headers))
 
-		if err := handler(msgCtx, Message{
+		jctx, j := journal.Start(msgCtx, journal.KindConsumer)
+		j.SetRequestID(rid)
+		spanCtx, endSpan := observability.StartSpan(jctx, "kafka.consume "+m.Topic)
+
+		start := time.Now()
+		herr := handler(spanCtx, Message{
 			Topic:     m.Topic,
 			Key:       m.Key,
 			Value:     m.Value,
-			RequestID: applogger.RequestIDFromContext(msgCtx),
-		}); err != nil {
-			c.log.Error().Err(err).Str("topic", m.Topic).Msg("kafka handler error, skipping commit")
-			continue
-		}
+			RequestID: rid,
+		})
+		endSpan()
 
+		j.SetTraceID(observability.TraceID(spanCtx))
+		c.logConsumed(m, rid, j, time.Since(start), herr)
+
+		if herr != nil {
+			continue // skip commit so the message is redelivered
+		}
 		if err := c.r.CommitMessages(ctx, m); err != nil {
 			c.log.Error().Err(err).Msg("kafka commit messages failed")
 		}
 	}
 }
 
+// logConsumed writes one structured JSON line to consumer.log for a processed
+// message, embedding the third-party calls and custom traces collected by the journal.
+func (c *Consumer) logConsumed(m kafkago.Message, rid string, j *journal.Journal, latency time.Duration, herr error) {
+	status := "ok"
+	if herr != nil {
+		status = "error"
+	}
+	ev := applogger.Consumer().Info().
+		Str("broker", "kafka").
+		Str("topic", m.Topic).
+		Int("partition", m.Partition).
+		Int64("offset", m.Offset).
+		Str("key", string(m.Key)).
+		Str("request_id", rid).
+		Str("trace_id", j.TraceID()).
+		Dur("latency_ms", latency).
+		Str("status", status).
+		Interface("thirdparty", j.ThirdParties()).
+		Interface("trace", j.Traces())
+	if herr != nil {
+		ev = ev.Str("error", herr.Error())
+	}
+	ev.Msg("consumed")
+}
+
+// Close shuts down the consumer reader.
 func (c *Consumer) Close() error {
 	return c.r.Close()
 }
 
+// kafkaConnCloser is the subset of kafkago.Conn used by the health check (enables mocking).
 type kafkaConnCloser interface {
 	Close() error
 }
 
+// HealthCheck returns a probe function that dials the first broker and closes immediately.
+// Compatible with handler.Checker (returns "ok", "down", or "not_configured").
 func HealthCheck(brokers string) func(ctx context.Context) string {
 	return healthCheckWithDialer(brokers, func(ctx context.Context, addr string) (kafkaConnCloser, error) {
 		return kafkago.DialContext(ctx, "tcp", addr)

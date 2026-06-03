@@ -4,8 +4,24 @@ import (
 	"context"
 
 	"github.com/gofiber/fiber/v2"
+	"go.elastic.co/apm/v2"
 	"go.opentelemetry.io/otel"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
+
+// TraceID returns the active trace id for correlating logs with the APM/OTel UI.
+// It checks the OTel span context first (covers the "otel" backend and any span
+// created via StartSpan), then falls back to the Elastic APM transaction. Returns
+// "" when no trace is active (e.g. provider "none").
+func TraceID(ctx context.Context) string {
+	if sc := oteltrace.SpanContextFromContext(ctx); sc.HasTraceID() {
+		return sc.TraceID().String()
+	}
+	if tx := apm.TransactionFromContext(ctx); tx != nil {
+		return tx.TraceContext().Trace.String()
+	}
+	return ""
+}
 
 // StartSpan begins a span named name as a child of whatever trace is active in ctx,
 // and returns the derived context plus an end func to defer.

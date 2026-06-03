@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
 
+	"github.com/abdullahPrasetio/wapgo/pkg/journal"
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
+	"github.com/abdullahPrasetio/wapgo/pkg/observability"
 )
 
 // consumeChan is the subset of amqp.Channel used by Consumer (enables mocking).
@@ -134,18 +138,53 @@ func (c *Consumer) handle(d amqp.Delivery, handler HandlerFunc) {
 		rid = fmt.Sprint(v)
 	}
 
-	ctx := applogger.WithRequestID(context.Background(), rid)
+	// Continue any distributed trace propagated through the AMQP headers.
+	msgCtx := otel.GetTextMapPropagator().Extract(
+		applogger.WithRequestID(context.Background(), rid), amqpTableCarrier(d.Headers))
+	jctx, j := journal.Start(msgCtx, journal.KindConsumer)
+	j.SetRequestID(rid)
+	spanCtx, endSpan := observability.StartSpan(jctx, "rabbitmq.consume "+d.RoutingKey)
 
-	if err := handler(ctx, Message{
+	start := time.Now()
+	herr := handler(spanCtx, Message{
 		RoutingKey: d.RoutingKey,
 		Body:       d.Body,
 		RequestID:  rid,
-	}); err != nil {
-		c.log.Error().Err(err).Str("routing_key", d.RoutingKey).Msg("rabbitmq handler failed, routing to DLQ")
+	})
+	endSpan()
+
+	j.SetTraceID(observability.TraceID(spanCtx))
+	c.logConsumed(d, rid, j, time.Since(start), herr)
+
+	if herr != nil {
+		c.log.Error().Err(herr).Str("routing_key", d.RoutingKey).Msg("rabbitmq handler failed, routing to DLQ")
 		d.Nack(false, false) //nolint:errcheck
 		return
 	}
 	d.Ack(false) //nolint:errcheck
+}
+
+// logConsumed writes one structured JSON line to consumer.log for a processed
+// delivery, embedding the third-party calls and custom traces from the journal.
+func (c *Consumer) logConsumed(d amqp.Delivery, rid string, j *journal.Journal, latency time.Duration, herr error) {
+	status := "ok"
+	if herr != nil {
+		status = "error"
+	}
+	ev := applogger.Consumer().Info().
+		Str("broker", "rabbitmq").
+		Str("exchange", d.Exchange).
+		Str("routing_key", d.RoutingKey).
+		Str("request_id", rid).
+		Str("trace_id", j.TraceID()).
+		Dur("latency_ms", latency).
+		Str("status", status).
+		Interface("thirdparty", j.ThirdParties()).
+		Interface("trace", j.Traces())
+	if herr != nil {
+		ev = ev.Str("error", herr.Error())
+	}
+	ev.Msg("consumed")
 }
 
 // Close shuts down the channel and connection.

@@ -42,6 +42,17 @@ func main() {
 	}
 
 	applogger.Setup(cfg.App.Env, cfg.Log.Level, cfg.Log.FilePath, cfg.Log.ToFile, cfg.App.Name)
+
+	// Structured sinks → logs/{api,consumer,thirdparty,trace}.log
+	if err := applogger.SetupSinks(applogger.SinkConfig{
+		Dir:        cfg.Log.Dir,
+		Rotation:   cfg.Log.Rotation,
+		MaxAgeDays: cfg.Log.MaxAgeDays,
+		Console:    cfg.App.Env != "production",
+	}); err != nil {
+		log.Fatal().Err(err).Msg("failed to setup log sinks")
+	}
+
 	log.Info().Str("version", version).Str("env", cfg.App.Env).
 		Str("observability", cfg.Observability.Provider).Msg("starting service")
 
@@ -136,6 +147,11 @@ func main() {
 	app.Use(mw.CORS(cfg.App.CORSAllowedOrigins))
 	app.Use(obsProvider.HTTPMiddleware())
 	app.Use(observability.MetricsMiddleware())
+	// Full request/response journal → api.log (after obs so trace_id is available).
+	app.Use(mw.AccessLog(mw.AccessLogOptions{
+		BodyMaxBytes:  cfg.Log.BodyMaxBytes,
+		CaptureBodies: cfg.Log.HTTPBodies,
+	}))
 
 	route.Setup(app, userHandler, healthHandler, cfg.App.Env)
 

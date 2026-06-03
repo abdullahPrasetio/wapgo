@@ -8,14 +8,14 @@ import (
 )
 
 type Config struct {
-	App          AppConfig          `mapstructure:"app"`
-	DB           DBConfig           `mapstructure:"db"`
-	Redis        RedisConfig        `mapstructure:"redis"`
-	Kafka        KafkaConfig        `mapstructure:"kafka"`
-	RabbitMQ     RabbitMQConfig     `mapstructure:"rabbitmq"`
-	Log          LogConfig          `mapstructure:"log"`
-	Services     ServiceURLs        `mapstructure:"services"`
-	JWT          JWTConfig          `mapstructure:"jwt"`
+	App           AppConfig           `mapstructure:"app"`
+	DB            DBConfig            `mapstructure:"db"`
+	Redis         RedisConfig         `mapstructure:"redis"`
+	Kafka         KafkaConfig         `mapstructure:"kafka"`
+	RabbitMQ      RabbitMQConfig      `mapstructure:"rabbitmq"`
+	Log           LogConfig           `mapstructure:"log"`
+	Services      ServiceURLs         `mapstructure:"services"`
+	JWT           JWTConfig           `mapstructure:"jwt"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
 }
 
@@ -34,9 +34,9 @@ type JWTConfig struct {
 //   - "elastic_apm" — Elastic APM Go agent; agent ENV vars (ELASTIC_APM_*)
 //     are read automatically by the agent and do not need to appear here.
 type ObservabilityConfig struct {
-	Provider       string `mapstructure:"provider"`         // OBSERVABILITY_PROVIDER
-	TracingEnabled bool   `mapstructure:"tracing_enabled"`  // OTEL_TRACING_ENABLED (otel only)
-	OTLPEndpoint   string `mapstructure:"otlp_endpoint"`    // OTEL_EXPORTER_OTLP_ENDPOINT (otel only)
+	Provider       string `mapstructure:"provider"`        // OBSERVABILITY_PROVIDER
+	TracingEnabled bool   `mapstructure:"tracing_enabled"` // OTEL_TRACING_ENABLED (otel only)
+	OTLPEndpoint   string `mapstructure:"otlp_endpoint"`   // OTEL_EXPORTER_OTLP_ENDPOINT (otel only)
 }
 
 type AppConfig struct {
@@ -80,6 +80,13 @@ type LogConfig struct {
 	Level    string `mapstructure:"level"`
 	ToFile   bool   `mapstructure:"to_file"`
 	FilePath string `mapstructure:"file_path"`
+
+	// Structured sinks (api/consumer/thirdparty/trace).
+	Dir          string `mapstructure:"dir"`            // directory for the 4 sink files (default "logs")
+	Rotation     string `mapstructure:"rotation"`       // "size" | "daily"
+	MaxAgeDays   int    `mapstructure:"max_age_days"`   // retention for sink files
+	BodyMaxBytes int    `mapstructure:"body_max_bytes"` // per-body cap in access/thirdparty logs
+	HTTPBodies   bool   `mapstructure:"http_bodies"`    // capture request/response bodies in api.log
 }
 
 func Load() (*Config, error) {
@@ -96,40 +103,45 @@ func Load() (*Config, error) {
 
 	// Explicit bindings ensure ENV names like DB_MAX_OPEN_CONNS map correctly
 	bindings := map[string]string{
-		"app.env":                  "APP_ENV",
-		"app.port":                 "APP_PORT",
-		"app.name":                 "APP_NAME",
-		"app.cors_allowed_origins": "APP_CORS_ALLOWED_ORIGINS",
-		"db.driver":                "DB_DRIVER",
-		"db.host":                  "DB_HOST",
-		"db.port":                  "DB_PORT",
-		"db.name":                  "DB_NAME",
-		"db.user":                  "DB_USER",
-		"db.password":              "DB_PASSWORD",
-		"db.max_open_conns":        "DB_MAX_OPEN_CONNS",
-		"db.max_idle_conns":        "DB_MAX_IDLE_CONNS",
-		"db.conn_max_life":         "DB_CONN_MAX_LIFE",
-		"db.auto_migrate":          "DB_AUTO_MIGRATE",
-		"db.sslmode":               "DB_SSL_MODE",
-		"redis.url":                "REDIS_URL",
-		"redis.password":           "REDIS_PASSWORD",
-		"redis.db":                 "REDIS_DB",
-		"kafka.brokers":            "KAFKA_BROKERS",
-		"kafka.group_id":           "KAFKA_GROUP_ID",
-		"rabbitmq.dsn":             "RABBITMQ_DSN",
-		"rabbitmq.exchange":        "RABBITMQ_EXCHANGE",
-		"log.level":                "LOG_LEVEL",
-		"log.to_file":              "LOG_TO_FILE",
-		"log.file_path":            "LOG_FILE_PATH",
-		"services.user_url":                "USER_SERVICE_URL",
-		"services.order_url":               "ORDER_SERVICE_URL",
-		"jwt.secret":                        "JWT_SECRET",
-		"jwt.issuer":                        "JWT_ISSUER",
-		"jwt.audience":                      "JWT_AUDIENCE",
-		"jwt.expiry":                        "JWT_EXPIRY",
-		"observability.provider":             "OBSERVABILITY_PROVIDER",
-		"observability.tracing_enabled":      "OTEL_TRACING_ENABLED",
-		"observability.otlp_endpoint":        "OTEL_EXPORTER_OTLP_ENDPOINT",
+		"app.env":                       "APP_ENV",
+		"app.port":                      "APP_PORT",
+		"app.name":                      "APP_NAME",
+		"app.cors_allowed_origins":      "APP_CORS_ALLOWED_ORIGINS",
+		"db.driver":                     "DB_DRIVER",
+		"db.host":                       "DB_HOST",
+		"db.port":                       "DB_PORT",
+		"db.name":                       "DB_NAME",
+		"db.user":                       "DB_USER",
+		"db.password":                   "DB_PASSWORD",
+		"db.max_open_conns":             "DB_MAX_OPEN_CONNS",
+		"db.max_idle_conns":             "DB_MAX_IDLE_CONNS",
+		"db.conn_max_life":              "DB_CONN_MAX_LIFE",
+		"db.auto_migrate":               "DB_AUTO_MIGRATE",
+		"db.sslmode":                    "DB_SSL_MODE",
+		"redis.url":                     "REDIS_URL",
+		"redis.password":                "REDIS_PASSWORD",
+		"redis.db":                      "REDIS_DB",
+		"kafka.brokers":                 "KAFKA_BROKERS",
+		"kafka.group_id":                "KAFKA_GROUP_ID",
+		"rabbitmq.dsn":                  "RABBITMQ_DSN",
+		"rabbitmq.exchange":             "RABBITMQ_EXCHANGE",
+		"log.level":                     "LOG_LEVEL",
+		"log.to_file":                   "LOG_TO_FILE",
+		"log.file_path":                 "LOG_FILE_PATH",
+		"log.dir":                       "LOG_DIR",
+		"log.rotation":                  "LOG_ROTATION",
+		"log.max_age_days":              "LOG_MAX_AGE_DAYS",
+		"log.body_max_bytes":            "LOG_BODY_MAX_BYTES",
+		"log.http_bodies":               "LOG_HTTP_BODIES",
+		"services.user_url":             "USER_SERVICE_URL",
+		"services.order_url":            "ORDER_SERVICE_URL",
+		"jwt.secret":                    "JWT_SECRET",
+		"jwt.issuer":                    "JWT_ISSUER",
+		"jwt.audience":                  "JWT_AUDIENCE",
+		"jwt.expiry":                    "JWT_EXPIRY",
+		"observability.provider":        "OBSERVABILITY_PROVIDER",
+		"observability.tracing_enabled": "OTEL_TRACING_ENABLED",
+		"observability.otlp_endpoint":   "OTEL_EXPORTER_OTLP_ENDPOINT",
 	}
 	for key, env := range bindings {
 		if err := v.BindEnv(key, env); err != nil {
@@ -155,6 +167,11 @@ func Load() (*Config, error) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.to_file", false)
 	v.SetDefault("log.file_path", "logs/app.log")
+	v.SetDefault("log.dir", "logs")
+	v.SetDefault("log.rotation", "size")
+	v.SetDefault("log.max_age_days", 30)
+	v.SetDefault("log.body_max_bytes", 16384)
+	v.SetDefault("log.http_bodies", true)
 	v.SetDefault("jwt.issuer", "wapgo-service")
 	v.SetDefault("jwt.audience", "wapgo-api")
 	v.SetDefault("jwt.expiry", "24h")

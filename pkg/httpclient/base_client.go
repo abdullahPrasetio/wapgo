@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/abdullahPrasetio/wapgo/pkg/journal"
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
 )
 
@@ -43,6 +45,9 @@ type Options struct {
 	// Use observability.Provider.WrapTransport to add distributed tracing spans
 	// for outgoing requests (OTel otelhttp.NewTransport or Elastic APM apmhttp.WrapRoundTripper).
 	TransportWrapper func(http.RoundTripper) http.RoundTripper
+	// LogBodyMaxBytes caps request/response bodies recorded in the request journal
+	// (thirdparty.log + the api/consumer record). Default 16 KB; set negative to omit bodies.
+	LogBodyMaxBytes int
 }
 
 func applyDefaults(o Options) Options {
@@ -60,6 +65,9 @@ func applyDefaults(o Options) Options {
 	}
 	if o.CBTimeout == 0 {
 		o.CBTimeout = 30 * time.Second
+	}
+	if o.LogBodyMaxBytes == 0 {
+		o.LogBodyMaxBytes = 16384 // 16 KB
 	}
 	return o
 }
@@ -120,6 +128,11 @@ func New(opts Options) *Client {
 
 // Do executes req, injecting X-Request-ID and Authorization from ctx.
 // The response body is capped at MaxResponseBytes.
+//
+// When a *journal.Journal is present in ctx (i.e. inside a request handled by the
+// AccessLog middleware), the call is recorded as a third-party entry: method, url,
+// host, status, latency, and capped request/response bodies are appended to the
+// parent record and written to thirdparty.log.
 func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
 	req = req.WithContext(ctx)
 
@@ -132,15 +145,64 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	// Propagate OTel trace context (W3C TraceContext + Baggage) into outgoing headers.
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
+	j := journal.FromContext(ctx)
+	start := time.Now()
+
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if j != nil {
+			j.AddThirdParty(journal.ThirdParty{
+				Method:      req.Method,
+				URL:         req.URL.String(),
+				Host:        req.URL.Host,
+				LatencyMS:   time.Since(start).Milliseconds(),
+				RequestBody: c.capturedRequestBody(req),
+				Error:       err.Error(),
+				StartedAt:   start,
+			})
+		}
 		return nil, err
 	}
+
+	if j != nil {
+		// Buffer the (capped) response so it can be both logged and re-read by the caller.
+		full, _ := io.ReadAll(io.LimitReader(resp.Body, c.opts.MaxResponseBytes))
+		resp.Body.Close() //nolint:errcheck
+		resp.Body = io.NopCloser(bytes.NewReader(full))
+
+		j.AddThirdParty(journal.ThirdParty{
+			Method:       req.Method,
+			URL:          req.URL.String(),
+			Host:         req.URL.Host,
+			Status:       resp.StatusCode,
+			LatencyMS:    time.Since(start).Milliseconds(),
+			RequestBody:  c.capturedRequestBody(req),
+			ResponseBody: journal.CapBody(full, string(resp.Header.Get("Content-Type")), c.opts.LogBodyMaxBytes),
+			StartedAt:    start,
+		})
+		return resp, nil
+	}
+
 	resp.Body = &limitReadCloser{
 		Reader: io.LimitReader(resp.Body, c.opts.MaxResponseBytes),
 		Closer: resp.Body,
 	}
 	return resp, nil
+}
+
+// capturedRequestBody reads a copy of the request body (via GetBody, which is set for
+// bodies created by http.NewRequest) and returns it capped/redacted for the journal.
+func (c *Client) capturedRequestBody(req *http.Request) string {
+	if req.GetBody == nil {
+		return ""
+	}
+	rc, err := req.GetBody()
+	if err != nil {
+		return ""
+	}
+	defer rc.Close() //nolint:errcheck
+	b, _ := io.ReadAll(io.LimitReader(rc, int64(c.opts.MaxResponseBytes)))
+	return journal.CapBody(b, req.Header.Get("Content-Type"), c.opts.LogBodyMaxBytes)
 }
 
 // Get is a convenience wrapper: performs a GET, reads the body, and returns

@@ -9,6 +9,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.11.0] — 2026-06-03
+
+### Added
+- `pkg/logger` — **four structured log sinks** written to `logs/`: `api.log`, `consumer.log`,
+  `thirdparty.log`, `trace.log`. `SetupSinks(SinkConfig)` plus `API()` / `Consumer()` / `ThirdParty()` /
+  `Trace()` accessors. Rotation is selectable via `LOG_ROTATION`: `size` (lumberjack) or `daily`
+  (date-stamped `api-2006-01-02.log`, midnight rollover, `LOG_MAX_AGE_DAYS` retention).
+- `pkg/journal` — request/message-scoped journal stored in context. `AddThirdParty` and `AddTrace`
+  append to the parent record **and** write a standalone JSON line to `thirdparty.log` / `trace.log`
+  (dual-write), all sharing `request_id` + `trace_id`. Includes header redaction (`RedactHeaders`) and
+  body capping (`CapBody`, skips binary content).
+- `internal/delivery/http/middleware` — `AccessLog` middleware writes one JSON line per request to
+  `api.log` with the **full request** (method, url, query, all headers, body) and **full response**
+  (status, headers, body, latency), the correlating `trace_id`, and the embedded `thirdparty[]` /
+  `trace[]` arrays. Sensitive headers are redacted; bodies are size-capped and gated by `LOG_HTTP_BODIES`.
+- `pkg/httpclient` — `Client.Do` now records each outbound call into the request journal (method, url,
+  host, status, latency, capped request/response bodies) when a journal is present in context — this is
+  the source of the per-request "which third parties were hit" list. New `Options.LogBodyMaxBytes`.
+- `pkg/messaging/kafka` & `pkg/messaging/rabbitmq` — consumers now start a per-message journal + APM/OTel
+  span (continuing any propagated trace via the existing carriers) and write one structured line to
+  `consumer.log` with `thirdparty[]` / `trace[]`, request_id, trace_id, latency, and status.
+- `pkg/observability.TraceID(ctx)` — backend-agnostic trace-id extraction (OTel span context, then
+  Elastic APM transaction) for log correlation.
+- CLI skeleton — vendors `pkg/logger/sinks.go` and `pkg/journal`, the `AccessLog` middleware, and the
+  previously-missing Kafka/RabbitMQ `carrier.go`; wires `SetupSinks` + `AccessLog` in `cmd/api/main.go`;
+  adds `deploy/filebeat.yml` + `deploy/README.md` for shipping the four JSON logs to Elasticsearch.
+- `config` — `LOG_DIR`, `LOG_ROTATION`, `LOG_MAX_AGE_DAYS`, `LOG_BODY_MAX_BYTES`, `LOG_HTTP_BODIES`.
+
+### Fixed
+- CLI skeleton — the Kafka/RabbitMQ packages were missing `carrier.go`, so projects generated with
+  `--kafka`/`--rabbitmq` failed to compile; the carriers are now vendored.
+
+---
+
 ## [0.10.0] — 2026-06-02
 
 ### Added

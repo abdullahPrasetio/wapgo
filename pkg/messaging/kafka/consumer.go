@@ -8,8 +8,11 @@ import (
 
 	"github.com/rs/zerolog"
 	kafkago "github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
 
+	"github.com/abdullahPrasetio/wapgo/pkg/journal"
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
+	"github.com/abdullahPrasetio/wapgo/pkg/observability"
 )
 
 // reader is the subset of kafkago.Reader used by Consumer (enables mocking in tests).
@@ -60,22 +63,59 @@ func (c *Consumer) Start(ctx context.Context, handler HandlerFunc) error {
 			continue
 		}
 
-		msgCtx := applogger.WithRequestID(ctx, extractRequestID(m))
+		rid := extractRequestID(m)
+		// Continue any distributed trace propagated through the message headers.
+		msgCtx := otel.GetTextMapPropagator().Extract(
+			applogger.WithRequestID(ctx, rid), ExtractCarrier(m.Headers))
 
-		if err := handler(msgCtx, Message{
+		jctx, j := journal.Start(msgCtx, journal.KindConsumer)
+		j.SetRequestID(rid)
+		spanCtx, endSpan := observability.StartSpan(jctx, "kafka.consume "+m.Topic)
+
+		start := time.Now()
+		herr := handler(spanCtx, Message{
 			Topic:     m.Topic,
 			Key:       m.Key,
 			Value:     m.Value,
-			RequestID: applogger.RequestIDFromContext(msgCtx),
-		}); err != nil {
-			c.log.Error().Err(err).Str("topic", m.Topic).Msg("kafka handler error, skipping commit")
-			continue
-		}
+			RequestID: rid,
+		})
+		endSpan()
 
+		j.SetTraceID(observability.TraceID(spanCtx))
+		c.logConsumed(m, rid, j, time.Since(start), herr)
+
+		if herr != nil {
+			continue // skip commit so the message is redelivered
+		}
 		if err := c.r.CommitMessages(ctx, m); err != nil {
 			c.log.Error().Err(err).Msg("kafka commit messages failed")
 		}
 	}
+}
+
+// logConsumed writes one structured JSON line to consumer.log for a processed
+// message, embedding the third-party calls and custom traces collected by the journal.
+func (c *Consumer) logConsumed(m kafkago.Message, rid string, j *journal.Journal, latency time.Duration, herr error) {
+	status := "ok"
+	if herr != nil {
+		status = "error"
+	}
+	ev := applogger.Consumer().Info().
+		Str("broker", "kafka").
+		Str("topic", m.Topic).
+		Int("partition", m.Partition).
+		Int64("offset", m.Offset).
+		Str("key", string(m.Key)).
+		Str("request_id", rid).
+		Str("trace_id", j.TraceID()).
+		Dur("latency_ms", latency).
+		Str("status", status).
+		Interface("thirdparty", j.ThirdParties()).
+		Interface("trace", j.Traces())
+	if herr != nil {
+		ev = ev.Str("error", herr.Error())
+	}
+	ev.Msg("consumed")
 }
 
 // Close shuts down the consumer reader.
