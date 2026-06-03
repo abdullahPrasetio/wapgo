@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -28,13 +29,26 @@ type SinkConfig struct {
 	Console    bool   // also echo each sink to stdout (dev convenience)
 }
 
-// The four category loggers. Until SetupSinks runs they are no-ops, so code that
-// logs to a sink before configuration simply discards the line instead of panicking.
+// sinkHolder wraps zerolog.Logger in an atomic.Pointer so SetupSinks and the
+// accessor functions can be called concurrently (e.g. during parallel tests).
+type sinkHolder struct{ p atomic.Pointer[zerolog.Logger] }
+
+func newSinkHolder() *sinkHolder {
+	h := &sinkHolder{}
+	nop := zerolog.Nop()
+	h.p.Store(&nop)
+	return h
+}
+
+func (h *sinkHolder) set(l zerolog.Logger) { h.p.Store(&l) }
+func (h *sinkHolder) get() *zerolog.Logger  { return h.p.Load() }
+
+// The four category loggers. Until SetupSinks runs they are no-ops.
 var (
-	apiLogger        = zerolog.Nop()
-	consumerLogger   = zerolog.Nop()
-	thirdPartyLogger = zerolog.Nop()
-	traceLogger      = zerolog.Nop()
+	apiSink        = newSinkHolder()
+	consumerSink   = newSinkHolder()
+	thirdPartySink = newSinkHolder()
+	traceSink      = newSinkHolder()
 )
 
 // SetupSinks initializes the four structured log files. Call once at startup.
@@ -55,10 +69,10 @@ func SetupSinks(cfg SinkConfig) error {
 		return err
 	}
 
-	apiLogger = newSinkLogger("api", cfg)
-	consumerLogger = newSinkLogger("consumer", cfg)
-	thirdPartyLogger = newSinkLogger("thirdparty", cfg)
-	traceLogger = newSinkLogger("trace", cfg)
+	apiSink.set(newSinkLogger("api", cfg))
+	consumerSink.set(newSinkLogger("consumer", cfg))
+	thirdPartySink.set(newSinkLogger("thirdparty", cfg))
+	traceSink.set(newSinkLogger("trace", cfg))
 	return nil
 }
 
@@ -81,18 +95,17 @@ func newSinkLogger(name string, cfg SinkConfig) zerolog.Logger {
 	return zerolog.New(w).With().Timestamp().Str("log", name).Logger()
 }
 
-// API returns the logger that writes to api.log. The pointer targets the package
-// variable, so it stays valid (and live) across SetupSinks reconfiguration.
-func API() *zerolog.Logger { return &apiLogger }
+// API returns the logger that writes to api.log.
+func API() *zerolog.Logger { return apiSink.get() }
 
 // Consumer returns the logger that writes to consumer.log.
-func Consumer() *zerolog.Logger { return &consumerLogger }
+func Consumer() *zerolog.Logger { return consumerSink.get() }
 
 // ThirdParty returns the logger that writes to thirdparty.log.
-func ThirdParty() *zerolog.Logger { return &thirdPartyLogger }
+func ThirdParty() *zerolog.Logger { return thirdPartySink.get() }
 
 // Trace returns the logger that writes to trace.log.
-func Trace() *zerolog.Logger { return &traceLogger }
+func Trace() *zerolog.Logger { return traceSink.get() }
 
 // ── daily rotating writer ─────────────────────────────────────────────────────
 

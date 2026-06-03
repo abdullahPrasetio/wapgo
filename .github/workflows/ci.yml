@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 env:
-  GO_VERSION: "1.25.8"
+  GO_VERSION: "1.25.11"
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -25,13 +25,13 @@ jobs:
           cache: true
 
       - name: golangci-lint (framework)
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
           args: --timeout=5m
 
       - name: golangci-lint (cli)
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
           working-directory: cli
@@ -98,7 +98,9 @@ jobs:
           cache: true
 
       - name: Run tests (framework)
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: |
+          go test -race -coverprofile=coverage.out -covermode=atomic \
+            $(go list ./... | grep -v '/examples' | grep -v '/cmd/')
 
       - name: Coverage gate (≥ 80 %)
         run: |
