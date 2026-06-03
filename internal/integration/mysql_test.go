@@ -34,7 +34,7 @@ func TestMySQLUserRepository(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { mysqlContainer.Terminate(ctx) }) //nolint:errcheck
 
-	dsn, err := mysqlContainer.ConnectionString(ctx)
+	dsn, err := mysqlContainer.ConnectionString(ctx, "parseTime=true")
 	require.NoError(t, err)
 
 	// ── Open GORM connection ──────────────────────────────────────────────────
