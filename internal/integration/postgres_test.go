@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go"
+	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"gorm.io/driver/postgres"
@@ -35,14 +35,9 @@ func TestPostgresUserRepository(t *testing.T) {
 		// FIX 1: Hapus WithInitScripts() yang kosong
 		// FIX 2: Tambah wait strategy agar koneksi tidak dibuka sebelum Postgres siap
 		testcontainers.WithWaitStrategy(
-			wait.ForSQL("5432/tcp", "pgx", func(host string, port string) string {
-				return fmt.Sprintf(
-					"host=%s port=%s user=testuser password=testpass dbname=testdb sslmode=disable",
-					host, port,
-				)
-			}).
-				WithStartupTimeout(60*time.Second).
-				WithPollInterval(1*time.Second),
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(60*time.Second),
 		),
 	)
 	require.NoError(t, err)
