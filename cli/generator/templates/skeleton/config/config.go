@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
@@ -89,6 +90,9 @@ type LogConfig struct {
 }
 
 func Load() (*Config, error) {
+	// Load .env silently — missing file is fine (production uses real ENV vars)
+	_ = godotenv.Load()
+
 	v := viper.New()
 
 	v.SetConfigName("config")

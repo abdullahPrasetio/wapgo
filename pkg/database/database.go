@@ -43,15 +43,29 @@ func NewConnection(cfg *config.DBConfig) (*gorm.DB, error) {
 }
 
 func buildDialector(cfg *config.DBConfig) (gorm.Dialector, error) {
+	if cfg.Host == "" {
+		return nil, fmt.Errorf("DB_HOST is required but not set")
+	}
+	if cfg.Name == "" {
+		return nil, fmt.Errorf("DB_NAME is required but not set")
+	}
+	if cfg.User == "" {
+		return nil, fmt.Errorf("DB_USER is required but not set")
+	}
+
 	switch cfg.Driver {
 	case "mysql":
 		tls := "false"
 		if cfg.SSLMode == "require" {
 			tls = "true"
 		}
+		port := cfg.Port
+		if port == "" {
+			port = "3306"
+		}
 		dsn := fmt.Sprintf(
 			"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC&tls=%s",
-			cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name, tls,
+			cfg.User, cfg.Password, cfg.Host, port, cfg.Name, tls,
 		)
 		return mysql.Open(dsn), nil
 
@@ -60,14 +74,18 @@ func buildDialector(cfg *config.DBConfig) (gorm.Dialector, error) {
 		if sslMode == "" {
 			sslMode = "disable"
 		}
+		port := cfg.Port
+		if port == "" {
+			port = "5432"
+		}
 		dsn := fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
-			cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Name, sslMode,
+			"postgres://%s:%s@%s:%s/%s?sslmode=%s&TimeZone=UTC",
+			cfg.User, cfg.Password, cfg.Host, port, cfg.Name, sslMode,
 		)
 		return postgres.Open(dsn), nil
 
 	default:
-		return nil, fmt.Errorf("unsupported DB driver: %s", cfg.Driver)
+		return nil, fmt.Errorf("unsupported DB driver: %q", cfg.Driver)
 	}
 }
 

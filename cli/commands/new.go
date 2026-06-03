@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -91,6 +92,15 @@ Or pass everything up-front for non-interactive / CI use:
 
 			if err := generator.Scaffold(generator.TemplateFS, opts, targetDir); err != nil {
 				return fmt.Errorf("scaffold failed: %w", err)
+			}
+
+			fmt.Println("  Running go mod tidy...")
+			tidy := exec.Command("go", "mod", "tidy")
+			tidy.Dir = targetDir
+			tidy.Stdout = os.Stdout
+			tidy.Stderr = os.Stderr
+			if err := tidy.Run(); err != nil {
+				fmt.Printf("  warning: go mod tidy failed: %v\n", err)
 			}
 
 			printSummary(opts)
