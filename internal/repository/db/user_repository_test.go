@@ -17,6 +17,7 @@ import (
 
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
 	dbrepo "github.com/abdullahPrasetio/wapgo/internal/repository/db"
+	"github.com/abdullahPrasetio/wapgo/pkg/pagination"
 )
 
 func newMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
@@ -116,6 +117,63 @@ func TestFindAll_Empty(t *testing.T) {
 	assert.Empty(t, users)
 }
 
+func TestFindAll_DBError(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users"`)).
+		WillReturnError(sql.ErrConnDone)
+
+	_, err := repo.FindAll(context.Background())
+	assert.Error(t, err)
+}
+
+// ── FindAllPaged ──────────────────────────────────────────────────────────────
+
+func TestFindAllPaged_Success(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "users"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users"`)).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(uuid.New(), "Alice", "a@x.com", "h", time.Now(), time.Now(), nil).
+			AddRow(uuid.New(), "Bob", "b@x.com", "h", time.Now(), time.Now(), nil))
+
+	req := &pagination.Request{Page: 1, Size: 10}
+	users, total, err := repo.FindAllPaged(context.Background(), req)
+	require.NoError(t, err)
+	assert.Len(t, users, 2)
+	assert.Equal(t, 2, total)
+}
+
+func TestFindAllPaged_CountError(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "users"`)).
+		WillReturnError(sql.ErrConnDone)
+
+	req := &pagination.Request{Page: 1, Size: 10}
+	_, _, err := repo.FindAllPaged(context.Background(), req)
+	assert.ErrorContains(t, err, "count users")
+}
+
+func TestFindAllPaged_FindError(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "users"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users"`)).
+		WillReturnError(sql.ErrConnDone)
+
+	req := &pagination.Request{Page: 1, Size: 10}
+	_, _, err := repo.FindAllPaged(context.Background(), req)
+	assert.ErrorContains(t, err, "find all users paged")
+}
+
 // ── Create ────────────────────────────────────────────────────────────────────
 
 func TestCreate_Success(t *testing.T) {
@@ -183,6 +241,34 @@ func TestDelete_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestUpdate_DBError(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	user := &entity.User{ID: uuid.New(), Name: "Eve", Email: "eve@example.com", Password: "h"}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "users"`)).
+		WillReturnError(sql.ErrConnDone)
+	mock.ExpectRollback()
+
+	err := repo.Update(context.Background(), user)
+	assert.Error(t, err)
+}
+
+func TestDelete_DBError(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "users"`)).
+		WillReturnError(sql.ErrConnDone)
+	mock.ExpectRollback()
+
+	err := repo.Delete(context.Background(), uuid.New())
+	assert.Error(t, err)
+}
+
 // ── ExistsByEmail ─────────────────────────────────────────────────────────────
 
 func TestExistsByEmail_Exists(t *testing.T) {
@@ -196,6 +282,18 @@ func TestExistsByEmail_Exists(t *testing.T) {
 	exists, err := repo.ExistsByEmail(context.Background(), "alice@example.com")
 	require.NoError(t, err)
 	assert.True(t, exists)
+}
+
+func TestExistsByEmail_DBError(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "users"`)).
+		WithArgs("err@example.com").
+		WillReturnError(sql.ErrConnDone)
+
+	_, err := repo.ExistsByEmail(context.Background(), "err@example.com")
+	assert.Error(t, err)
 }
 
 func TestExistsByEmail_NotExists(t *testing.T) {

@@ -20,11 +20,16 @@ func NewConnection(cfg *config.DBConfig) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	return openWithDialector(dialector, cfg)
+}
 
+// openWithDialector opens a GORM connection with the given dialector and
+// applies pool settings from cfg. Separated to allow unit testing with sqlmock.
+func openWithDialector(dialector gorm.Dialector, cfg *config.DBConfig) (*gorm.DB, error) {
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger:                 gormlogger.Default.LogMode(gormlogger.Silent),
-		PrepareStmt:            true, // cache prepared statements
-		SkipDefaultTransaction: true, // better performance for read-heavy workloads
+		PrepareStmt:            true,
+		SkipDefaultTransaction: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("opening db connection: %w", err)
@@ -43,6 +48,12 @@ func NewConnection(cfg *config.DBConfig) (*gorm.DB, error) {
 }
 
 func buildDialector(cfg *config.DBConfig) (gorm.Dialector, error) {
+	switch cfg.Driver {
+	case "mysql", "postgres", "":
+	default:
+		return nil, fmt.Errorf("unsupported DB driver: %q", cfg.Driver)
+	}
+
 	if cfg.Host == "" {
 		return nil, fmt.Errorf("DB_HOST is required but not set")
 	}
@@ -85,6 +96,7 @@ func buildDialector(cfg *config.DBConfig) (gorm.Dialector, error) {
 		return postgres.Open(dsn), nil
 
 	default:
+		// unreachable: driver already validated above
 		return nil, fmt.Errorf("unsupported DB driver: %q", cfg.Driver)
 	}
 }

@@ -64,6 +64,34 @@ func TestAddThirdPartyAndTrace_AggregateAndDualWrite(t *testing.T) {
 	assert.Contains(t, string(tr), `"score":42`)
 }
 
+func TestJournal_KindRequestIDTraceID(t *testing.T) {
+	ctx, j := journal.Start(context.Background(), journal.KindConsumer)
+	assert.Equal(t, journal.KindConsumer, j.Kind())
+
+	j.SetRequestID("req-99")
+	j.SetTraceID("trace-99")
+	assert.Equal(t, "req-99", j.RequestID())
+	assert.Equal(t, "trace-99", j.TraceID())
+
+	// nil-safe accessors
+	var nilJ *journal.Journal
+	assert.Equal(t, journal.Kind(""), nilJ.Kind())
+	assert.Equal(t, "", nilJ.RequestID())
+	assert.Equal(t, "", nilJ.TraceID())
+	_ = ctx
+}
+
+func TestIsSensitiveHeader(t *testing.T) {
+	assert.True(t, journal.IsSensitiveHeader("Authorization"))
+	assert.True(t, journal.IsSensitiveHeader("COOKIE"))
+	assert.True(t, journal.IsSensitiveHeader("x-api-key"))
+	assert.False(t, journal.IsSensitiveHeader("Content-Type"))
+}
+
+func TestRedactHeaders_EmptyMap(t *testing.T) {
+	assert.Equal(t, map[string]string{}, journal.RedactHeaders(map[string]string{}))
+}
+
 func TestRedactHeaders(t *testing.T) {
 	in := map[string]string{
 		"Authorization": "Bearer secret",

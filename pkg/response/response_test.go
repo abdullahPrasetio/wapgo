@@ -153,6 +153,39 @@ func TestPaginated_FirstPage(t *testing.T) {
 	assert.Equal(t, float64(1), pg["total_pages"]) // ceil(5/10) = 1
 }
 
+func TestValidationError(t *testing.T) {
+	app := newApp(func(c *fiber.Ctx) error {
+		return response.ValidationError(c, "name is required")
+	})
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusUnprocessableEntity, code)
+	assert.Equal(t, false, body["status"])
+	assert.Equal(t, "name is required", body["message"])
+	assert.Equal(t, string(response.ErrValidation), body["code"])
+}
+
+func TestConflict(t *testing.T) {
+	app := newApp(func(c *fiber.Ctx) error {
+		return response.Conflict(c, "email already exists")
+	})
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusConflict, code)
+	assert.Equal(t, false, body["status"])
+	assert.Equal(t, "email already exists", body["message"])
+	assert.Equal(t, string(response.ErrConflict), body["code"])
+}
+
+func TestForbidden(t *testing.T) {
+	app := newApp(func(c *fiber.Ctx) error {
+		return response.Forbidden(c)
+	})
+	code, body := do(t, app)
+	assert.Equal(t, fiber.StatusForbidden, code)
+	assert.Equal(t, false, body["status"])
+	assert.Equal(t, "forbidden", body["message"])
+	assert.Equal(t, string(response.ErrForbidden), body["code"])
+}
+
 func TestPaginated_ZeroResults(t *testing.T) {
 	app := newApp(func(c *fiber.Ctx) error {
 		return response.Paginated(c, "empty", []string{}, 1, 10, 0)
