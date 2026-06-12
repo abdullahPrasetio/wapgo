@@ -5,12 +5,20 @@ import (
 	fiberSwagger "github.com/gofiber/swagger"
 
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/handler"
+	"github.com/abdullahPrasetio/wapgo/pkg/auth"
 	"github.com/abdullahPrasetio/wapgo/pkg/observability"
 )
 
 // Setup registers all application routes on the Fiber app.
-// appEnv is the value of APP_ENV ("development", "production", …).
-func Setup(app *fiber.App, userHandler *handler.UserHandler, healthHandler *handler.HealthHandler, appEnv string) {
+func Setup(
+	app *fiber.App,
+	userHandler *handler.UserHandler,
+	authHandler *handler.AuthHandler,
+	healthHandler *handler.HealthHandler,
+	jwtCfg *auth.Config,
+	bl auth.Blacklist,
+	appEnv string,
+) {
 	// Welcome — service info landing page
 	app.Get("/", welcomeHandler(appEnv))
 
@@ -23,7 +31,8 @@ func Setup(app *fiber.App, userHandler *handler.UserHandler, healthHandler *hand
 
 	// API v1 group
 	v1 := app.Group("/api/v1")
-	RegisterUserRoutes(v1, userHandler)
+	RegisterAuthRoutes(v1, authHandler, jwtCfg, bl)
+	RegisterUserRoutes(v1, userHandler, jwtCfg, bl)
 }
 
 // prodGuard returns a middleware that responds 404 when the app is running in

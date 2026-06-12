@@ -325,28 +325,48 @@ secara otomatis. Gate `LOG_HTTP_BODIES=true` diperlukan agar body request/respon
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/auth"
 
-// Sign token
-token, err := auth.Sign(auth.Claims{
-    UserID: "user-123",
-    Role:   "admin",
-}, cfg.JWT)
+jwtCfg := &auth.Config{
+    Secret:   os.Getenv("JWT_SECRET"), // min 32 bytes
+    Issuer:   "my-service",
+    Audience: "my-api",
+    Expiry:   15 * time.Minute,
+}
 
-// Verify token
-claims, err := auth.Verify(token, cfg.JWT)
+// Sign — returns (token, jti, error)
+// tokenType: "access" untuk access token, "refresh" untuk refresh token
+token, jti, err := auth.Sign("user-123", []string{"admin"}, "access", jwtCfg)
 
-// Middleware di Fiber route
-app.Use(auth.Middleware(cfg.JWT))
+// Verify
+claims, err := auth.Verify(token, jwtCfg)
+// claims.Subject   = "user-123"
+// claims.Roles     = []string{"admin"}
+// claims.TokenType = "access"
+// claims.ID (JTI)  = UUID string
+
+// Middleware — tolak request tanpa Bearer token valid
+// Refresh token otomatis ditolak (token_type != "access")
+app.Use(auth.Middleware(jwtCfg))
+
+// Middleware dengan blacklist (cek token revocation)
+bl := auth.NewRedisBlacklist(redisClient, "bl:")
+app.Use(auth.Middleware(jwtCfg, bl))
+
+// RBAC — hanya role tertentu yang boleh akses
 app.Use(auth.RequireRole("admin"))
 
 // Ambil claims dari handler
 func handler(c *fiber.Ctx) error {
     claims := auth.GetClaims(c)
-    fmt.Println(claims.UserID, claims.Role)
+    fmt.Println(claims.Subject, claims.Roles)
     return nil
 }
+
+// Revoke token (logout / blacklist)
+remaining := time.Until(claims.ExpiresAt.Time)
+bl.Revoke(ctx, jti, remaining)
 ```
 
-Hardening: algoritma di-pin ke HS256, validasi `exp`/`iat`/`iss`/`aud`, `alg:none` ditolak, secret ≥ 32 byte.
+Hardening: algoritma di-pin ke HS256, validasi `exp`/`iat`/`iss`/`aud`, `alg:none` ditolak, secret ≥ 32 byte, `token_type` claim mencegah refresh token dipakai sebagai access token.
 
 ### 7.4 httpclient
 

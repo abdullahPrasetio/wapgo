@@ -1,6 +1,6 @@
 # Binaries
 bin/
-api
+/api
 *.exe
 *.exe~
 *.dll
@@ -48,3 +48,6 @@ logs/
 *.key
 *.crt
 *.p12
+
+# Security review findings (local-only)
+finding.md

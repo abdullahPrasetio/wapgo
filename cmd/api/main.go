@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,7 +33,9 @@ import (
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/route"
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
 	dbrepo "github.com/abdullahPrasetio/wapgo/internal/repository/db"
+	redisrepo "github.com/abdullahPrasetio/wapgo/internal/repository/redis"
 	"github.com/abdullahPrasetio/wapgo/internal/usecase"
+	"github.com/abdullahPrasetio/wapgo/pkg/auth"
 	"github.com/abdullahPrasetio/wapgo/pkg/database"
 	applogger "github.com/abdullahPrasetio/wapgo/pkg/logger"
 	kafkamsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
@@ -56,8 +59,6 @@ func main() {
 		Str("observability", cfg.Observability.Provider).Msg("starting wapgo")
 
 	// ── Observability provider ────────────────────────────────────────────────
-	// Selects OTel or Elastic APM based on OBSERVABILITY_PROVIDER env var.
-	// Prometheus RED metrics (MetricsMiddleware) run independently of this choice.
 	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to setup observability provider")
@@ -68,9 +69,16 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
 	}
-	// Instrument GORM: every query becomes a child span of the active transaction.
 	if err := obsProvider.InstrumentGORM(db); err != nil {
 		log.Warn().Err(err).Msg("gorm instrumentation failed")
+	}
+	// v1.3: enforce per-query deadline from config.
+	queryTimeout, err := time.ParseDuration(cfg.DB.QueryTimeout)
+	if err != nil || queryTimeout <= 0 {
+		queryTimeout = 5 * time.Second
+	}
+	if err := db.Use(database.NewQueryTimeoutPlugin(queryTimeout)); err != nil {
+		log.Warn().Err(err).Msg("query timeout plugin registration failed")
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -87,22 +95,44 @@ func main() {
 
 	// ── Redis ────────────────────────────────────────────────────────────────
 	redisClient := newRedisClient(&cfg.Redis)
-	// Instrument Redis: every command becomes a child span.
 	obsProvider.InstrumentRedis(redisClient)
 	log.Info().Msg("redis connected")
 
 	// ── Repositories ─────────────────────────────────────────────────────────
 	userRepo := dbrepo.NewUserRepository(db)
+	cacher := redisrepo.New(redisClient, "wapgo")
+
+	// ── Auth ─────────────────────────────────────────────────────────────────
+	jwtExpiry, err := time.ParseDuration(cfg.JWT.Expiry)
+	if err != nil {
+		jwtExpiry = 15 * time.Minute
+	}
+	refreshExpiry, err := time.ParseDuration(cfg.JWT.RefreshExpiry)
+	if err != nil {
+		refreshExpiry = 7 * 24 * time.Hour
+	}
+	jwtCfg := &auth.Config{
+		Secret:   cfg.JWT.Secret,
+		Issuer:   cfg.JWT.Issuer,
+		Audience: cfg.JWT.Audience,
+		Expiry:   jwtExpiry,
+	}
+	blacklist := auth.NewRedisBlacklist(redisClient)
+
+	bcryptCost := cfg.App.BcryptCost
+	if bcryptCost < 10 {
+		bcryptCost = 12
+	}
 
 	// ── Usecases ─────────────────────────────────────────────────────────────
 	userUC := usecase.NewUserUseCase(userRepo)
+	authUC := usecase.NewAuthUseCase(userRepo, cacher, jwtCfg, refreshExpiry, blacklist, bcryptCost)
 
-	// ── Validators ───────────────────────────────────────────────────────────
+	// ── Validators / Handlers ─────────────────────────────────────────────────
 	val := validator.New()
-
-	// ── Handlers ─────────────────────────────────────────────────────────────
 	startTime := time.Now()
 	userHandler := handler.NewUserHandler(userUC, val)
+	authHandler := handler.NewAuthHandler(authUC, val, cfg.App.Env)
 	probeTimeout, _ := time.ParseDuration(cfg.Health.ProbeTimeout)
 	healthHandler := handler.NewHealthHandler(sqlDB, redisClient, startTime, version, probeTimeout)
 
@@ -111,7 +141,6 @@ func main() {
 	} else {
 		healthHandler.AddChecker("kafka", func(_ context.Context) string { return "not_configured" })
 	}
-
 	if cfg.RabbitMQ.DSN != "" {
 		healthHandler.AddChecker("rabbitmq", rabbitmqmsg.HealthCheck(cfg.RabbitMQ.DSN))
 	} else {
@@ -119,6 +148,7 @@ func main() {
 	}
 
 	// ── Fiber app ────────────────────────────────────────────────────────────
+	trustedProxies := parseTrustedProxies(cfg.App.TrustedProxies)
 	app := fiber.New(fiber.Config{
 		AppName:               cfg.App.Name,
 		BodyLimit:             4 * 1024 * 1024,
@@ -126,6 +156,9 @@ func main() {
 		WriteTimeout:          10 * time.Second,
 		IdleTimeout:           120 * time.Second,
 		DisableStartupMessage: true,
+		// Trusted proxies: use X-Forwarded-For only from known load balancers/ingress.
+		TrustedProxies:      trustedProxies,
+		EnableTrustedProxyCheck: len(trustedProxies) > 0,
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {
@@ -145,10 +178,10 @@ func main() {
 	app.Use(mw.RateLimiter())
 	app.Use(mw.RequestLogger())
 	app.Use(mw.CORS(cfg.App.CORSAllowedOrigins))
-	app.Use(obsProvider.HTTPMiddleware())      // tracing: OTel or Elastic APM
-	app.Use(observability.MetricsMiddleware()) // Prometheus RED metrics (always on)
+	app.Use(obsProvider.HTTPMiddleware())
+	app.Use(observability.MetricsMiddleware())
 
-	route.Setup(app, userHandler, healthHandler, cfg.App.Env)
+	route.Setup(app, userHandler, authHandler, healthHandler, jwtCfg, blacklist, cfg.App.Env)
 
 	// ── Start server ─────────────────────────────────────────────────────────
 	go func() {
@@ -165,7 +198,6 @@ func main() {
 	<-quit
 
 	log.Info().Msg("shutdown signal received")
-
 	shutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -177,15 +209,11 @@ func main() {
 	if err := obsProvider.Shutdown(shutCtx); err != nil {
 		log.Error().Err(err).Msg("observability provider shutdown error")
 	}
-	log.Info().Msg("observability provider stopped")
-
 	if err := redisClient.Close(); err != nil {
 		log.Error().Err(err).Msg("redis close error")
 	}
-	log.Info().Msg("redis closed")
-
 	if err := sqlDB.Close(); err != nil {
-		log.Error().Err(err).Msg("database closed")
+		log.Error().Err(err).Msg("database close error")
 	}
 	log.Info().Msg("shutdown complete")
 }
@@ -202,4 +230,19 @@ func newRedisClient(cfg *config.RedisConfig) *redis.Client {
 		opts.DB = cfg.DB
 	}
 	return redis.NewClient(opts)
+}
+
+// parseTrustedProxies splits a comma-separated string of proxy IPs/CIDRs.
+func parseTrustedProxies(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 )
 
 // ErrCacheMiss is returned when the requested key does not exist.
@@ -41,14 +42,17 @@ func (r *RedisCacher) Set(ctx context.Context, key string, value interface{}, tt
 }
 
 // Get retrieves the key and JSON-unmarshals the value into dest.
-// Returns ErrCacheMiss when the key does not exist.
+// Returns ErrCacheMiss when the key does not exist OR when Redis is unavailable
+// (graceful degradation — callers fall back to the source of truth instead of crashing).
 func (r *RedisCacher) Get(ctx context.Context, key string, dest interface{}) error {
 	b, err := r.client.Get(ctx, r.prefixed(key)).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return ErrCacheMiss
 	}
 	if err != nil {
-		return fmt.Errorf("cache get: %w", err)
+		// Redis unavailable — log and treat as a cache miss so the caller can bypass cache.
+		log.Warn().Err(err).Str("key", r.prefixed(key)).Msg("redis get failed, degrading to cache miss")
+		return ErrCacheMiss
 	}
 	if err := json.Unmarshal(b, dest); err != nil {
 		return fmt.Errorf("cache get unmarshal: %w", err)
