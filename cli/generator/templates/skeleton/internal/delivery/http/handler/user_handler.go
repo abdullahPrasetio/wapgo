@@ -85,7 +85,7 @@ func (h *UserHandler) mapError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, usecase.ErrNotFound):
 		return response.NotFound(c, "user not found")
 	case errors.Is(err, usecase.ErrEmailConflict):
-		return response.Error(c, fiber.StatusConflict, "email already in use")
+		return response.Error(c, fiber.StatusConflict, response.ErrConflict, "email already in use")
 	case errors.Is(err, usecase.ErrInvalidUUID):
 		return response.BadRequest(c, "invalid id format")
 	default:
