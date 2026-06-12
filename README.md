@@ -176,7 +176,6 @@ All settings are read from ENV (highest priority) → `config/config.yaml` → d
 | `JWT_SECRET` | — | **Required, min 32 bytes** |
 | `JWT_EXPIRY` | `24h` | Go duration string |
 | `OBSERVABILITY_PROVIDER` | `elastic_apm` | `otel`, `elastic_apm`, or `none` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | e.g. `http://otel-collector:4318` |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
 | `KAFKA_BROKERS` | — | Comma-separated `host:port` |
 | `RABBITMQ_DSN` | — | `amqp://user:pass@host:5672/vhost` |
@@ -185,6 +184,32 @@ All settings are read from ENV (highest priority) → `config/config.yaml` → d
 | `LOG_MAX_AGE_DAYS` | `30` | Retention in days for log files |
 | `LOG_HTTP_BODIES` | `false` | Capture full request/response bodies in `api.log` |
 | `LOG_BODY_MAX_BYTES` | `8192` | Maximum body size captured (bytes) |
+
+### Observability — `OBSERVABILITY_PROVIDER=otel`
+
+| Variable | Default | Description |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OTLP HTTP collector endpoint, e.g. `http://otel-collector:4318` |
+
+Requires an OTLP-compatible collector (Jaeger all-in-one, OTel Collector, Grafana Tempo, etc.).
+
+```bash
+# Dev: Jaeger all-in-one
+docker run -d -p 4318:4318 -p 16686:16686 jaegertracing/all-in-one:latest
+# UI → http://localhost:16686
+```
+
+### Observability — `OBSERVABILITY_PROVIDER=elastic_apm`
+
+Read natively by the Elastic APM Go agent — no wapgo-specific mapping needed.
+
+| Variable | Default | Description |
+|---|---|---|
+| `ELASTIC_APM_SERVER_URL` | — | **Required** — APM Server endpoint, e.g. `https://apm-server:8200` |
+| `ELASTIC_APM_SECRET_TOKEN` | — | Auth token (if APM Server requires authentication) |
+| `ELASTIC_APM_SERVICE_NAME` | value of `APP_NAME` | Overrides service name shown in Kibana APM |
+| `ELASTIC_APM_ENVIRONMENT` | — | e.g. `production`, `staging` |
+| `ELASTIC_APM_ACTIVE` | `true` | Set `false` to disable the agent without changing provider |
 
 ---
 
