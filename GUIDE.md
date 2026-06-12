@@ -49,6 +49,44 @@ make cli-build      # output → bin/wapgo
 make cli-install    # install ke $GOPATH/bin
 ```
 
+### Upgrade CLI
+
+Cek dan upgrade ke versi terbaru:
+
+```bash
+wapgo upgrade           # cek GitHub release dan jalankan go install jika ada yang baru
+wapgo upgrade --check   # hanya cek, tidak install
+```
+
+Output contoh saat ada update:
+
+```
+  ✦ wapgo upgrade
+
+  →  installed : v1.4.0
+  →  latest    : v1.4.2
+
+  ↑  update available: v1.4.0 → v1.4.2
+
+  →  running: go install github.com/abdullahPrasetio/wapgo/cli/wapgo@v1.4.2
+
+  ✓ upgraded to v1.4.2  run wapgo version to confirm
+```
+
+Jika sudah up to date:
+
+```
+  ✦ wapgo upgrade
+
+  →  installed : v1.4.2
+  →  latest    : v1.4.2
+
+  ✓ already up to date
+```
+
+> **Catatan:** Command ini membutuhkan koneksi internet untuk mengakses GitHub API.
+> Jika offline, peringatan ditampilkan namun tidak menyebabkan error fatal.
+
 ---
 
 ## 2. Membuat Project Baru

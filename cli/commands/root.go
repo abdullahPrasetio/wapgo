@@ -56,4 +56,5 @@ func init() {
 	rootCmd.AddCommand(newMakeTestCmd())
 	rootCmd.AddCommand(newMakeEventCmd())
 	rootCmd.AddCommand(newListCmd())
+	rootCmd.AddCommand(newUpgradeCmd())
 }
