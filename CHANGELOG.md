@@ -7,6 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **`wapgo upgrade`** — new CLI command to check for a newer release and self-update via
+  `go install`. Flags: `--check` (report only, no install). Offline-safe: network errors
+  are non-fatal warnings.
+
+### Fixed
+- **`wapgo new` scaffold** — `go mod tidy` no longer fails after scaffolding. Root cause:
+  `cmd/api/main.go.tmpl` imported `[[.Module]]/docs` (Swagger generated package) which
+  does not exist until the user runs `swag init`. The import has been removed.
+  `router.go` template also had a `github.com/gofiber/swagger` import that is not included
+  in the generated `go.mod`; the swagger route and its dependency have been removed from
+  the skeleton (users can add it manually via `wapgo add` or by generating docs separately).
+
 ---
 
 ## [1.4.0] — 2026-06-12

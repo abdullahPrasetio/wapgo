@@ -116,6 +116,10 @@ wapgo make:all product
 wapgo new <project> --module github.com/me/svc   # scaffold full project
 wapgo make:all <name>                             # generate 8 domain files
 wapgo make:model | make:repo | make:usecase | make:controller | make:route | make:client
+wapgo add redis | kafka | rabbitmq                # add optional feature to existing project
+wapgo list                                        # list generated domains in current project
+wapgo upgrade                                     # check and self-update to latest release
+wapgo upgrade --check                             # check only, do not install
 wapgo version
 ```
 
