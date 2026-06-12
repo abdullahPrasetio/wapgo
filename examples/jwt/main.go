@@ -22,7 +22,7 @@ func main() {
 	}
 
 	// ── Sign ──────────────────────────────────────────────────────────────────
-	token, err := auth.Sign("user-42", []string{"admin", "editor"}, cfg)
+	token, _, err := auth.Sign("user-42", []string{"admin", "editor"}, "access", cfg)
 	if err != nil {
 		log.Fatalf("sign: %v", err)
 	}
@@ -45,7 +45,7 @@ func main() {
 
 	// ── Weak secret rejection demo ────────────────────────────────────────────
 	weakCfg := &auth.Config{Secret: "short"}
-	_, err = auth.Sign("user-1", nil, weakCfg)
+	_, _, err = auth.Sign("user-1", nil, "access", weakCfg)
 	if err != nil {
 		fmt.Println("Weak secret rejected (expected):", err)
 	}

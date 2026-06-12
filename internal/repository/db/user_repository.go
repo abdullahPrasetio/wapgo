@@ -92,3 +92,15 @@ func (r *userRepository) ExistsByEmail(ctx context.Context, email string) (bool,
 	}
 	return count > 0, nil
 }
+
+func (r *userRepository) FindByEmail(ctx context.Context, email string) (*entity.User, error) {
+	var user entity.User
+	result := r.db.WithContext(ctx).Where("email = ?", email).First(&user)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("find user by email: %w", result.Error)
+	}
+	return &user, nil
+}

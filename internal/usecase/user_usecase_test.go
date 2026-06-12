@@ -87,6 +87,18 @@ func (m *mockUserRepo) ExistsByEmail(_ context.Context, email string) (bool, err
 	return false, nil
 }
 
+func (m *mockUserRepo) FindByEmail(_ context.Context, email string) (*entity.User, error) {
+	if m.forceErr != nil {
+		return nil, m.forceErr
+	}
+	for _, u := range m.users {
+		if u.Email == email {
+			return u, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 func (m *mockUserRepo) FindAllPaged(_ context.Context, _ *pagination.Request) ([]*entity.User, int, error) {
 	if m.forceErr != nil {
 		return nil, 0, m.forceErr

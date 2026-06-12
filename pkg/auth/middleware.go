@@ -4,14 +4,16 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/rs/zerolog/log"
 )
 
 const claimsKey = "jwt_claims"
 
 // Middleware validates the Bearer token in the Authorization header.
-// On success the verified *Claims are stored in Fiber Locals and are accessible
-// via GetClaims(c). On failure the request is rejected with 401 Unauthorized.
-func Middleware(cfg *Config) fiber.Handler {
+// An optional Blacklist can be passed to reject revoked tokens (e.g. after logout).
+// On success the verified *Claims are stored in Fiber Locals via GetClaims(c).
+// On failure the request is rejected with 401 Unauthorized.
+func Middleware(cfg *Config, bl ...Blacklist) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		raw := c.Get("Authorization")
 		if !strings.HasPrefix(raw, "Bearer ") {
@@ -21,6 +23,21 @@ func Middleware(cfg *Config) fiber.Handler {
 		if err != nil {
 			return fiber.ErrUnauthorized
 		}
+		// Reject refresh tokens used as access tokens (token confusion attack).
+		if claims.TokenType != "" && claims.TokenType != "access" {
+			return fiber.ErrUnauthorized
+		}
+
+		// Optional blacklist check — fail open on storage error to preserve availability.
+		if len(bl) > 0 && bl[0] != nil && claims.ID != "" {
+			revoked, err := bl[0].IsRevoked(c.UserContext(), claims.ID)
+			if err != nil {
+				log.Warn().Err(err).Str("jti", claims.ID).Msg("blacklist check error, proceeding")
+			} else if revoked {
+				return fiber.ErrUnauthorized
+			}
+		}
+
 		c.Locals(claimsKey, claims)
 		return c.Next()
 	}

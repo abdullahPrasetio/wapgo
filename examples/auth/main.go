@@ -74,7 +74,7 @@ func main() {
 			return response.Error(c, fiber.StatusUnauthorized, response.ErrUnauthorized, "invalid credentials")
 		}
 
-		token, err := auth.Sign(u.ID, u.Roles, jwtCfg)
+		token, _, err := auth.Sign(u.ID, u.Roles, "access", jwtCfg)
 		if err != nil {
 			return response.InternalError(c)
 		}

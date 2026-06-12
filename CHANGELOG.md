@@ -9,6 +9,94 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.0] — 2026-06-12
+
+### Security
+
+- **Token confusion eliminated** — `Claims` struct gains `TokenType string` field (`"access"` | `"refresh"`).
+  `auth.Sign()` signature changed to `Sign(subject, roles, tokenType, cfg) (token, jti string, err error)` — JTI
+  returned directly, no round-trip `Verify` needed. `Middleware` now rejects any token with `token_type != "access"`,
+  preventing refresh tokens from being used as Bearer access tokens.
+- **Reset token env-gated** — `AuthHandler` gains an `env string` field; `reset_token` is only included in
+  `ForgotPassword` responses when `APP_ENV != "production"`. Prevents account takeover via leaked token in
+  production API responses.
+- **Logout blacklists refresh JTI** — `Logout` now revokes both the access token JTI and the refresh token JTI in
+  the Redis blacklist. Previously only the access JTI was revoked.
+- **Session versioning on password reset** — `ResetPassword` increments a per-user version counter
+  (`auth:ver:{userID}`) in Redis. `issueTokenPair` embeds the current version in the stored `refreshSession`.
+  `Refresh` rejects any session whose version is lower than the current counter, invalidating all pre-reset sessions.
+- **bcrypt minimum floor** — `NewAuthUseCase` now enforces `bcryptCost >= 10` (was `>= bcrypt.MinCost` = 4),
+  consistent with `APP_BCRYPT_COST` documentation and `main.go` enforcement.
+
+### Reliability
+
+- **Redis error logged before degradation** — `RedisCacher.Get` emits a `zerolog` `Warn` with the raw error and
+  key before returning `ErrCacheMiss`. Operators can now distinguish Redis outage from normal cache misses.
+
+### Changed
+
+- `auth.Sign` — signature is now `(subject string, roles []string, tokenType string, cfg *Config) (string, string, error)`.
+  All callers (`examples/jwt`, `examples/auth`, `examples/shop`, benchmarks, tests) updated.
+- `Refresh` — validates user still exists in DB (`userRepo.FindByID`) after session verification; returns
+  `ErrInvalidToken` for soft-deleted or hard-deleted accounts.
+- `mockCacher` in `auth_usecase_test.go` rewritten to use JSON marshal/unmarshal, matching real Redis behaviour
+  and supporting struct-typed values.
+
+### Tests added
+
+- `TestSign_ReturnsJTI` — verifies JTI in returned string matches the `ID` claim in the parsed token.
+- `TestMiddleware_RefreshTokenRejected` — verifies middleware returns 401 for a token signed with `"refresh"` type.
+- `TestAuthUseCase_Refresh_InvalidAfterPasswordReset` — end-to-end: login → reset password → pre-reset refresh
+  token rejected.
+- `TestAuthUseCase_Logout_BlacklistsRefreshJTI` — verifies both access and refresh JTIs are in the blacklist
+  after logout.
+
+---
+
+## [1.3.0] — 2026-06-12
+
+### Added
+
+- **`pkg/database/timeout.go`** — `QueryTimeoutPlugin` GORM plugin; enforces per-query deadline on all
+  CRUD + raw operations. Configurable via `DB_QUERY_TIMEOUT` (default `5s`).
+- **`mw.WithBodyLimit(maxBytes)`** — per-route semantic body size limit in
+  `internal/delivery/http/middleware/security.go`; enforces a tighter limit post-Fiber-buffer on
+  individual endpoints (e.g. login, password reset).
+- **Graceful Redis degradation** — `RedisCacher.Get` returns `ErrCacheMiss` instead of a hard error when
+  Redis is unavailable, allowing callers to fall back to DB without crashing.
+- **bcrypt cost configurable** — `BCRYPT_COST` ENV → `cfg.App.BcryptCost`; minimum `10`, default `12`;
+  passed into `NewAuthUseCase` to control hashing work factor.
+
+---
+
+## [1.2.0] — 2026-06-12
+
+### Added
+
+- **`pkg/auth/blacklist.go`** — `Blacklist` interface + `RedisBlacklist` implementation (JTI revocation via
+  Redis SET with TTL). `auth.Middleware` accepts an optional `Blacklist` variadic argument; checks JTI on
+  every request when provided.
+- **Full authentication endpoints** wired via `internal/usecase/auth_usecase.go` and
+  `internal/delivery/http/handler/auth_handler.go`:
+  - `POST /api/v1/auth/login` — bcrypt verify, issue access + refresh JWT, store refresh session in Redis.
+  - `POST /api/v1/auth/refresh` — verify + rotate refresh session (token rotation).
+  - `POST /api/v1/auth/logout` — revoke access token JTI, delete refresh session.
+  - `POST /api/v1/auth/forgot-password` — generate single-use reset token (Redis TTL 15 min).
+  - `POST /api/v1/auth/reset-password` — consume reset token, update password hash.
+- **`pkg/auditlog/`** — `Logger`, `Entry`, `Action` constants; context-propagated via
+  `WithAuditLogger` / `FromContext`.
+- **`pkg/crypto/`** — `Encryptor` with AES-256-GCM; non-deterministic (fresh nonce per call).
+- **JWT middleware per-route** — `auth.Middleware(jwtCfg, bl)` attached to all `/users` routes via
+  `RegisterUserRoutes`; `auth.RequireRole("admin")` on `DELETE /users/:id`.
+- **Trusted proxy config** — `APP_TRUSTED_PROXIES` (comma-separated) wired to
+  `fiber.Config.TrustedProxies + EnableTrustedProxyCheck`.
+
+### Security
+
+- `Password` field on `entity.User` tagged `json:"-"` — never serialized to API responses.
+
+---
+
 ## [1.1.0] — 2026-06-03
 
 ### Added

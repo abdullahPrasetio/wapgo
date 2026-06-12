@@ -30,10 +30,11 @@ type HealthConfig struct {
 
 // JWTConfig holds parameters for HS256 token signing and verification.
 type JWTConfig struct {
-	Secret   string `mapstructure:"secret"`   // JWT_SECRET — must be ≥32 bytes in production
-	Issuer   string `mapstructure:"issuer"`   // JWT_ISSUER
-	Audience string `mapstructure:"audience"` // JWT_AUDIENCE
-	Expiry   string `mapstructure:"expiry"`   // JWT_EXPIRY — Go duration string, e.g. "24h"
+	Secret        string `mapstructure:"secret"`         // JWT_SECRET — must be ≥32 bytes in production
+	Issuer        string `mapstructure:"issuer"`         // JWT_ISSUER
+	Audience      string `mapstructure:"audience"`       // JWT_AUDIENCE
+	Expiry        string `mapstructure:"expiry"`         // JWT_EXPIRY — Go duration string, e.g. "15m"
+	RefreshExpiry string `mapstructure:"refresh_expiry"` // JWT_REFRESH_EXPIRY — e.g. "168h" (7 days)
 }
 
 // ObservabilityConfig controls which observability backend is used.
@@ -53,20 +54,23 @@ type AppConfig struct {
 	Port               string `mapstructure:"port"`
 	Name               string `mapstructure:"name"`
 	CORSAllowedOrigins string `mapstructure:"cors_allowed_origins"`
+	TrustedProxies     string `mapstructure:"trusted_proxies"` // APP_TRUSTED_PROXIES — comma-separated IPs/CIDRs
+	BcryptCost         int    `mapstructure:"bcrypt_cost"`      // BCRYPT_COST — default 12, minimum 10
 }
 
 type DBConfig struct {
-	Driver       string `mapstructure:"driver"`
-	Host         string `mapstructure:"host"`
-	Port         string `mapstructure:"port"`
-	Name         string `mapstructure:"name"`
-	User         string `mapstructure:"user"`
-	Password     string `mapstructure:"password"`
-	MaxOpenConns int    `mapstructure:"max_open_conns"`
-	MaxIdleConns int    `mapstructure:"max_idle_conns"`
-	ConnMaxLife  string `mapstructure:"conn_max_life"` // e.g. "5m"
-	AutoMigrate  bool   `mapstructure:"auto_migrate"`
-	SSLMode      string `mapstructure:"sslmode"`
+	Driver        string `mapstructure:"driver"`
+	Host          string `mapstructure:"host"`
+	Port          string `mapstructure:"port"`
+	Name          string `mapstructure:"name"`
+	User          string `mapstructure:"user"`
+	Password      string `mapstructure:"password"`
+	MaxOpenConns  int    `mapstructure:"max_open_conns"`
+	MaxIdleConns  int    `mapstructure:"max_idle_conns"`
+	ConnMaxLife   string `mapstructure:"conn_max_life"`   // e.g. "5m"
+	AutoMigrate   bool   `mapstructure:"auto_migrate"`
+	SSLMode       string `mapstructure:"sslmode"`
+	QueryTimeout  string `mapstructure:"query_timeout"` // DB_QUERY_TIMEOUT — e.g. "5s"
 }
 
 type RedisConfig struct {
@@ -151,6 +155,10 @@ func Load() (*Config, error) {
 		"jwt.issuer":                    "JWT_ISSUER",
 		"jwt.audience":                  "JWT_AUDIENCE",
 		"jwt.expiry":                    "JWT_EXPIRY",
+		"jwt.refresh_expiry":            "JWT_REFRESH_EXPIRY",
+		"app.trusted_proxies":           "APP_TRUSTED_PROXIES",
+		"app.bcrypt_cost":               "BCRYPT_COST",
+		"db.query_timeout":              "DB_QUERY_TIMEOUT",
 		"observability.provider":        "OBSERVABILITY_PROVIDER",
 		"observability.tracing_enabled": "OTEL_TRACING_ENABLED",
 		"observability.otlp_endpoint":   "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -187,7 +195,10 @@ func Load() (*Config, error) {
 	v.SetDefault("log.http_bodies", true)
 	v.SetDefault("jwt.issuer", "wapgo-service")
 	v.SetDefault("jwt.audience", "wapgo-api")
-	v.SetDefault("jwt.expiry", "24h")
+	v.SetDefault("jwt.expiry", "15m")
+	v.SetDefault("jwt.refresh_expiry", "168h") // 7 days
+	v.SetDefault("app.bcrypt_cost", 12)
+	v.SetDefault("db.query_timeout", "5s")
 	v.SetDefault("observability.provider", "elastic_apm")
 	v.SetDefault("observability.tracing_enabled", false)
 	v.SetDefault("health.probe_timeout", "2s")

@@ -11,12 +11,12 @@ var benchCfg = &Config{
 func BenchmarkSign(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
-		_, _ = Sign("user-123", []string{"admin", "user"}, benchCfg)
+		_, _, _ = Sign("user-123", []string{"admin", "user"}, "access", benchCfg)
 	}
 }
 
 func BenchmarkVerify(b *testing.B) {
-	token, _ := Sign("user-123", []string{"admin"}, benchCfg)
+	token, _, _ := Sign("user-123", []string{"admin"}, "access", benchCfg)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
@@ -27,7 +27,7 @@ func BenchmarkVerify(b *testing.B) {
 func BenchmarkSignVerifyRoundTrip(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
-		tok, _ := Sign("user-abc", []string{"user"}, benchCfg)
+		tok, _, _ := Sign("user-abc", []string{"user"}, "access", benchCfg)
 		_, _ = Verify(tok, benchCfg)
 	}
 }
