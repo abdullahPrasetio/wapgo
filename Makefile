@@ -1,5 +1,5 @@
 .PHONY: run build cli-build cli-install test test-race coverage lint sec docker-up docker-down \
-        docker-build docker-push migrate tidy check integration docs list
+        docker-build docker-push migrate tidy check integration docs list release
 
 # ── Service ────────────────────────────────────────────────────────────────────
 
@@ -90,3 +90,16 @@ migrate:
 tidy:
 	go mod tidy
 	cd cli && go mod tidy
+
+# ── Release ────────────────────────────────────────────────────────────────────
+# Usage: make release V=v1.4.3
+# Creates two tags required for go install to work:
+#   v1.4.3     — root module tag  (used by docker, CI badge, etc.)
+#   cli/v1.4.3 — CLI sub-module tag (required by: go install .../cli/wapgo@v1.4.3)
+release:
+	@[ -n "$(V)" ] || { echo "usage: make release V=vX.Y.Z"; exit 1; }
+	@echo "Tagging $(V) and cli/$(V)..."
+	git tag -a $(V) -m "release $(V)"
+	git tag -a cli/$(V) -m "cli release $(V)"
+	git push origin $(V) cli/$(V)
+	@echo "Done. Verify: go install github.com/abdullahPrasetio/wapgo/cli/wapgo@$(V)"
