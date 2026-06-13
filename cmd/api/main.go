@@ -58,7 +58,7 @@ func main() {
 	// ── Observability provider ────────────────────────────────────────────────
 	// Selects OTel or Elastic APM based on OBSERVABILITY_PROVIDER env var.
 	// Prometheus RED metrics (MetricsMiddleware) run independently of this choice.
-	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version)
+	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version, cfg.App.Env)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to setup observability provider")
 	}

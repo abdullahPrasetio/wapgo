@@ -57,7 +57,7 @@ func main() {
 		Str("observability", cfg.Observability.Provider).Msg("starting service")
 
 	// Observability provider: "otel", "elastic_apm", or "none"
-	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version)
+	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version, cfg.App.Env)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to setup observability provider")
 	}

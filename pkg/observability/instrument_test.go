@@ -45,7 +45,7 @@ func newRedisClientForTest() *redis.Client {
 
 func TestOTelProvider_InstrumentGORM(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: false}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 
 	db := openMockDB(t)
@@ -54,7 +54,7 @@ func TestOTelProvider_InstrumentGORM(t *testing.T) {
 
 func TestOTelProvider_InstrumentRedis(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: false}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 
 	client := newRedisClientForTest()
@@ -67,7 +67,7 @@ func TestOTelProvider_InstrumentRedis(t *testing.T) {
 
 func TestElasticProvider_InstrumentGORM(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "elastic_apm"}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 
 	db := openMockDB(t)
@@ -76,7 +76,7 @@ func TestElasticProvider_InstrumentGORM(t *testing.T) {
 
 func TestElasticProvider_InstrumentRedis(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "elastic_apm"}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 
 	client := newRedisClientForTest()

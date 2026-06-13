@@ -18,7 +18,7 @@ import (
 func newOTelProvider(t *testing.T, enabled bool) observability.Provider {
 	t.Helper()
 	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: enabled}
-	p, err := observability.New(context.Background(), cfg, "test-svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "test-svc", "0.0.0", "test")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
 	return p
@@ -85,7 +85,7 @@ func ExampleNew() {
 		TracingEnabled: true,
 		OTLPEndpoint:   "",    // empty → stdout in dev; "collector:4318" in prod
 	}
-	p, err := observability.New(context.Background(), cfg, "my-service", "1.0.0")
+	p, err := observability.New(context.Background(), cfg, "my-service", "1.0.0", "test")
 	if err != nil {
 		panic(err)
 	}

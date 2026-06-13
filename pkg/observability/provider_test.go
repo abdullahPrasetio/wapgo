@@ -18,7 +18,7 @@ import (
 
 func TestNew_OTelDisabled(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: false}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 	assert.NotNil(t, p)
 	assert.NoError(t, p.Shutdown(context.Background()))
@@ -26,7 +26,7 @@ func TestNew_OTelDisabled(t *testing.T) {
 
 func TestNew_OTelStdout(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: true}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 	assert.NotNil(t, p)
 	assert.NoError(t, p.Shutdown(context.Background()))
@@ -34,7 +34,7 @@ func TestNew_OTelStdout(t *testing.T) {
 
 func TestNew_UnknownProviderDefaultsToOTel(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "unknown"}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 	assert.NotNil(t, p)
 	_ = p.Shutdown(context.Background())
@@ -42,7 +42,7 @@ func TestNew_UnknownProviderDefaultsToOTel(t *testing.T) {
 
 func TestOTelProvider_WrapTransport(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: false}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 
 	wrapped := p.WrapTransport(http.DefaultTransport)
@@ -54,7 +54,7 @@ func TestOTelProvider_InstrumentRedis_NoOp(t *testing.T) {
 	// (use a real client object; redis is not running but hook attachment is sync)
 	// We simply confirm the method signature works — the hook is attached lazily.
 	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: false}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 	// Calling with a nil pointer would panic — skip; just verify method exists via interface.
 	_ = p
@@ -62,7 +62,7 @@ func TestOTelProvider_InstrumentRedis_NoOp(t *testing.T) {
 
 func TestOTelProvider_HTTPMiddleware_ServesFiber(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "otel", TracingEnabled: false}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 	defer p.Shutdown(context.Background()) //nolint:errcheck
 
@@ -86,14 +86,14 @@ func TestNew_ElasticAPM_Init(t *testing.T) {
 	// The Elastic APM provider initialises without error even when
 	// ELASTIC_APM_SERVER_URL is not set (agent is inactive by default).
 	cfg := &config.ObservabilityConfig{Provider: "elastic_apm"}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 	assert.NotNil(t, p)
 }
 
 func TestElasticProvider_HTTPMiddleware_ServesFiber(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "elastic_apm"}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 
 	app := fiber.New()
@@ -112,7 +112,7 @@ func TestElasticProvider_HTTPMiddleware_ServesFiber(t *testing.T) {
 
 func TestElasticProvider_WrapTransport(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "elastic_apm"}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 
 	wrapped := p.WrapTransport(http.DefaultTransport)
@@ -121,7 +121,7 @@ func TestElasticProvider_WrapTransport(t *testing.T) {
 
 func TestElasticProvider_Shutdown(t *testing.T) {
 	cfg := &config.ObservabilityConfig{Provider: "elastic_apm"}
-	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0")
+	p, err := observability.New(context.Background(), cfg, "svc", "0.0.0", "test")
 	require.NoError(t, err)
 	assert.NoError(t, p.Shutdown(context.Background()))
 }

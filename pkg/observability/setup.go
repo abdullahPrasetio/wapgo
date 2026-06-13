@@ -12,12 +12,11 @@ import (
 //   - "elastic_apm" — Elastic APM Go agent (reads ELASTIC_APM_* ENV vars natively)
 //   - "otel" or ""  — OpenTelemetry SDK (default)
 //
-// serviceName and serviceVersion are used as resource attributes for the OTel provider.
-// The Elastic APM agent reads its service name from ELASTIC_APM_SERVICE_NAME automatically.
-func New(ctx context.Context, cfg *config.ObservabilityConfig, serviceName, serviceVersion string) (Provider, error) {
+// serviceName, serviceVersion, and environment are used as OTel resource attributes.
+// The Elastic APM agent reads its config from ELASTIC_APM_* ENV vars automatically.
+func New(ctx context.Context, cfg *config.ObservabilityConfig, serviceName, serviceVersion, environment string) (Provider, error) {
 	switch cfg.Provider {
 	case "none":
-		// Tracing disabled — all instrumentation calls become no-ops.
 		return noopProvider{}, nil
 	case "elastic_apm":
 		p, err := newElasticProvider()
@@ -29,6 +28,7 @@ func New(ctx context.Context, cfg *config.ObservabilityConfig, serviceName, serv
 		p, err := newOTelProvider(ctx, otelConfig{
 			ServiceName:    serviceName,
 			ServiceVersion: serviceVersion,
+			Environment:    environment,
 			OTLPEndpoint:   cfg.OTLPEndpoint,
 			Enabled:        cfg.TracingEnabled,
 		})
