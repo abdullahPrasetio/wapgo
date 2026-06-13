@@ -201,5 +201,24 @@ func newRedisClient(cfg *config.RedisConfig) *redis.Client {
 	if cfg.DB > 0 {
 		opts.DB = cfg.DB
 	}
+
+	if cfg.PoolSize > 0 {
+		opts.PoolSize = cfg.PoolSize
+	}
+	if cfg.MinIdleConns > 0 {
+		opts.MinIdleConns = cfg.MinIdleConns
+	}
+	if cfg.MaxRetries > 0 {
+		opts.MaxRetries = cfg.MaxRetries
+	}
+	if d, err := time.ParseDuration(cfg.DialTimeout); err == nil {
+		opts.DialTimeout = d
+	}
+	if d, err := time.ParseDuration(cfg.ReadTimeout); err == nil {
+		opts.ReadTimeout = d
+	}
+	if d, err := time.ParseDuration(cfg.WriteTimeout); err == nil {
+		opts.WriteTimeout = d
+	}
 	return redis.NewClient(opts)
 }

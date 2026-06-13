@@ -55,6 +55,7 @@ func init() {
 	rootCmd.AddCommand(newMakeMigrationCmd())
 	rootCmd.AddCommand(newMakeTestCmd())
 	rootCmd.AddCommand(newMakeEventCmd())
+	rootCmd.AddCommand(newMakeWorkerCmd())
 	rootCmd.AddCommand(newListCmd())
 	rootCmd.AddCommand(newUpgradeCmd())
 }

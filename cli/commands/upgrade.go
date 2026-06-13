@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -136,7 +137,7 @@ func fetchLatestRelease() (*githubRelease, error) {
 	}
 
 	var rel githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&rel); err != nil {
 		return nil, err
 	}
 	return &rel, nil

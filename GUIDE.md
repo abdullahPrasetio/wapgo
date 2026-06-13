@@ -22,6 +22,7 @@
    - [messaging — Kafka](#75-messaging--kafka)
    - [messaging — RabbitMQ](#76-messaging--rabbitmq)
    - [observability](#77-observability)
+   - [Worker binary](#78-worker-binary)
 8. [Observability: OTel vs Elastic APM](#8-observability-otel-vs-elastic-apm)
 9. [Health Check](#9-health-check)
 10. [Makefile Commands](#10-makefile-commands)
@@ -180,6 +181,35 @@ wapgo make:route product
 wapgo make:client product      # external HTTP client
 ```
 
+### `make:worker` — Worker Binary
+
+Generate standalone consumer binary terpisah dari HTTP server:
+
+```bash
+# Worker tunggal (auto-detect broker dari go.mod)
+wapgo make:worker
+
+# Worker dengan nama (untuk multi-domain worker terpisah)
+wapgo make:worker order
+wapgo make:worker payment --broker kafka
+wapgo make:worker notification --broker rabbitmq
+wapgo make:worker sync --broker both
+```
+
+Output:
+- `cmd/worker/main.go` (tanpa nama) atau `cmd/worker-{name}/main.go` (dengan nama)
+- Makefile: `run-worker-{name}` dan `build-worker-{name}` ditambahkan otomatis
+
+Jalankan worker terpisah dari API:
+
+```bash
+make run-worker-order     # via Makefile
+# atau langsung:
+go run ./cmd/worker-order
+```
+
+---
+
 ### Apa yang dihasilkan `make:all <domain>`
 
 | File yang dibuat | Isi |
@@ -243,10 +273,15 @@ Semua konfigurasi dibaca dari ENV (atau `.env`). Prioritas: `ENV → config.yaml
 
 | ENV | Default | Keterangan |
 |---|---|---|
-| `REDIS_HOST` | `localhost` | |
-| `REDIS_PORT` | `6379` | |
-| `REDIS_PASSWORD` | *(kosong)* | |
-| `REDIS_DB` | `0` | |
+| `REDIS_URL` | `redis://localhost:6379` | URL koneksi (menggantikan HOST/PORT) |
+| `REDIS_PASSWORD` | *(kosong)* | Password auth |
+| `REDIS_DB` | `0` | Nomor database |
+| `REDIS_POOL_SIZE` | `20` | Jumlah maksimum koneksi di pool |
+| `REDIS_MIN_IDLE_CONNS` | `5` | Koneksi idle minimal yang selalu siap |
+| `REDIS_DIAL_TIMEOUT` | `5s` | Timeout saat membuka koneksi baru |
+| `REDIS_READ_TIMEOUT` | `3s` | Timeout baca per perintah |
+| `REDIS_WRITE_TIMEOUT` | `3s` | Timeout tulis per perintah |
+| `REDIS_MAX_RETRIES` | `3` | Jumlah retry otomatis pada error sementara |
 
 ### JWT
 
@@ -268,7 +303,8 @@ Semua konfigurasi dibaca dari ENV (atau `.env`). Prioritas: `ENV → config.yaml
 
 | ENV | Default | Keterangan |
 |---|---|---|
-| `RABBITMQ_DSN` | `amqp://guest:guest@localhost:5672/` | |
+| `RABBITMQ_DSN` | `amqp://guest:guest@localhost:5672/` | URL koneksi AMQP |
+| `RABBITMQ_EXCHANGE` | `{app-name}-exchange` | Nama topic exchange |
 
 ### Observability
 
@@ -410,7 +446,6 @@ Bawaan: retry (3x, exponential backoff), circuit breaker (open setelah 5 gagal),
 import "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
 
 // Producer
-// brokers: comma-separated "host:port"
 producer := kafka.NewProducer("localhost:9092", logger)
 err := producer.Publish(ctx, kafka.Message{
     Topic: "user.events",
@@ -419,54 +454,85 @@ err := producer.Publish(ctx, kafka.Message{
 })
 defer producer.Close()
 
-// Consumer
-// brokers: comma-separated, groupID: consumer group, topic: satu topic
+// Consumer — Start() blocks; cancel ctx untuk stop graceful
 consumer := kafka.NewConsumer("localhost:9092", "my-service-group", "user.events", logger)
-err = consumer.Start(ctx, func(ctx context.Context, msg kafka.Message) error {
-    // proses pesan; return non-nil = offset tidak di-commit (re-delivered)
-    return nil
-})
+go func() {
+    if err := consumer.Start(ctx, func(ctx context.Context, msg kafka.Message) error {
+        // proses pesan; return non-nil = offset tidak di-commit (re-delivered)
+        return nil
+    }); err != nil {
+        log.Error().Err(err).Msg("kafka consumer stopped")
+    }
+}()
 defer consumer.Close()
 
-// Health check (untuk /health endpoint)
+// Health check
 kafka.HealthCheck("localhost:9092")  // return func(ctx) string
 ```
 
-`X-Request-ID` dipropagasi otomatis via Kafka header `x-request-id`.
+**Resiliency bawaan:**
+- Fetch error → exponential backoff 1 s → 30 s (context-aware: shutdown tetap instan)
+- `HeartbeatInterval: 3s`, `SessionTimeout: 30s`, `RebalanceTimeout: 30s` — mencegah rebalancing macet
+- Internal reader error diredirect ke zerolog via `ErrorLogger`
+- `X-Request-ID` dipropagasi otomatis via Kafka header `x-request-id`
 
 ### 7.6 messaging — RabbitMQ
+
+> **Penting:** Buat **satu** `Connection` per proses dan bagikan ke semua publisher dan consumer.
+> Jangan pernah panggil `NewPublisher`/`NewConsumer` dengan DSN langsung — itu pola lama yang
+> menyebabkan satu publisher/consumer = satu koneksi TCP, yang akan crash broker saat ada ratusan consumer.
 
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/messaging/rabbitmq"
 
-// Publisher
-pub, err := rabbitmq.NewPublisher("amqp://guest:guest@localhost:5672/", "user.events", logger)
+// ── 1. SATU koneksi per proses ──────────────────────────────────────────────
+conn, err := rabbitmq.NewConnection(cfg.RabbitMQ.DSN, log.Logger)
+if err != nil {
+    log.Fatal().Err(err).Msg("rabbitmq connection failed")
+}
+defer conn.Close() // tutup saat shutdown
+
+// ── 2. Publisher — share conn ────────────────────────────────────────────────
+pub, err := rabbitmq.NewPublisher(conn, "user.events", log.Logger)
 if err != nil { ... }
-defer pub.Close()
+defer pub.Close() // hanya menutup channel, bukan koneksi
 
 err = pub.Publish(ctx, rabbitmq.Message{
     RoutingKey: "user.created",
     Body:       []byte(`{"id":"123"}`),
 })
+// Jika channel mati (broker restart), Publish membuka ulang channel sekali
+// lalu retry otomatis sebelum mengembalikan error.
 
-// Consumer dengan Dead Letter Queue otomatis
-cons, err := rabbitmq.NewConsumer("amqp://guest:guest@localhost:5672/", "user.events", logger)
-if err != nil { ... }
-defer cons.Close()
+// ── 3. Consumer — share conn, Subscribe BLOCKS ───────────────────────────────
+consumer := rabbitmq.NewConsumer(conn, "user.events", log.Logger)
 
-// Subscribe: declare queue + bind routing key + mulai goroutine drain
-err = cons.Subscribe("user.events.created", "user.created",
-    func(ctx context.Context, msg rabbitmq.Message) error {
-        // return non-nil = Nack → pesan masuk ke DLQ otomatis
-        return nil
-    },
-)
+go func() {
+    // Subscribe blocks sampai ctx dibatalkan.
+    // Jika channel/koneksi mati, Subscribe reconnect otomatis dengan
+    // exponential backoff (1s → 30s) — tidak perlu restart pod.
+    if err := consumer.Subscribe(ctx, "user.events.created", "user.created",
+        func(ctx context.Context, msg rabbitmq.Message) error {
+            // return non-nil = Nack → pesan ke DLQ otomatis
+            return nil
+        },
+    ); err != nil {
+        log.Error().Err(err).Msg("rabbitmq consumer stopped")
+    }
+}()
 
-// Health check (untuk /health endpoint)
-rabbitmq.HealthCheck("amqp://guest:guest@localhost:5672/")  // return func(ctx) string
+// ── 4. Health check (untuk /health endpoint) ─────────────────────────────────
+rabbitmq.HealthCheck(cfg.RabbitMQ.DSN)  // return func(ctx) string
+// HealthCheck menggunakan koneksi sementara tersendiri — tidak mengganggu conn di atas.
 ```
 
-DLQ (`user.events.created.dlq`) dikonfigurasi otomatis via `x-dead-letter-exchange`.
+**Resiliency bawaan:**
+- Satu TCP socket untuk semua consumer + publisher dalam satu proses
+- `NewConnection` dial dengan 5 s timeout + 10 s heartbeat AMQP
+- `Channel()` auto-reconnect dengan double-checked locking (aman untuk concurrent goroutine)
+- `Subscribe` blocking + auto-reconnect channel dengan exponential backoff 1 s → 30 s
+- Channel death deteksi via `amqp.NotifyClose` — reaktif, tidak polling
+- DLQ (`{queue}.dlq`) dikonfigurasi otomatis via `x-dead-letter-exchange`
 
 ### 7.7 observability
 
@@ -492,6 +558,79 @@ defer obsProvider.Shutdown(shutCtx)
 ```
 
 Prometheus metrics tersedia di `GET /metrics` (404 di `APP_ENV=production`).
+
+### 7.8 Worker binary
+
+Worker adalah binary terpisah dari HTTP server. Dibuat via `wapgo make:worker [name]`.
+
+**Kapan pakai worker terpisah?**
+- Consumer domain besar dengan logika berat (order processing, payment, notification)
+- Scaling consumer secara independen dari API
+- Isolasi fault: crash consumer tidak mematikan HTTP server
+
+**Pola standar dalam generated worker:**
+
+```go
+// cmd/worker-order/main.go (contoh output make:worker order --broker both)
+
+func main() {
+    cfg, _ := config.Load()
+    // ... setup logger, observability ...
+
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer stop()
+
+    // ── Kafka consumer ────────────────────────────────────────────────────
+    if cfg.Kafka.Brokers != "" {
+        kConsumer := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.GroupID, "orders", log.Logger)
+        defer kConsumer.Close()
+        go func() {
+            kConsumer.Start(ctx, func(ctx context.Context, msg kafka.Message) error {
+                // TODO: dispatch ke use case
+                return nil
+            })
+        }()
+    }
+
+    // ── RabbitMQ consumer — SATU koneksi per proses ───────────────────────
+    if cfg.RabbitMQ.DSN != "" {
+        rmqConn, err := rabbitmq.NewConnection(cfg.RabbitMQ.DSN, log.Logger)
+        if err != nil { log.Fatal().Err(err).Msg("rabbitmq failed") }
+        defer rmqConn.Close()
+
+        rConsumer := rabbitmq.NewConsumer(rmqConn, cfg.RabbitMQ.Exchange, log.Logger)
+        go func() {
+            rConsumer.Subscribe(ctx, "orders", "order.*", func(ctx context.Context, msg rabbitmq.Message) error {
+                // TODO: dispatch ke use case
+                return nil
+            })
+        }()
+    }
+
+    log.Info().Msg("worker ready — waiting for messages")
+    <-ctx.Done() // tunggu SIGTERM / SIGINT
+    log.Info().Msg("shutdown complete")
+}
+```
+
+**Multiple worker untuk satu service:**
+
+```
+cmd/
+├── api/main.go           ← HTTP server
+├── worker-order/main.go  ← order consumer
+└── worker-notif/main.go  ← notification consumer
+```
+
+Makefile yang di-generate otomatis:
+
+```makefile
+run-worker-order:
+    go run ./cmd/worker-order
+
+build-worker-order:
+    go build -o bin/worker-order ./cmd/worker-order
+```
 
 ---
 
@@ -622,6 +761,8 @@ Semua aktif tanpa konfigurasi tambahan:
 | **v0.9** | CLI wizard interaktif, `wapgo add <feature>`, conditional scaffolding | ✅ |
 | **v0.10** | OTel → Elastic APM bridge (`apmotel`), `none` provider, `StartSpan` helper, skeleton compile | ✅ |
 | **v0.11** | 4 log sinks, `pkg/journal` (dual-write), `AccessLog` middleware, consumer journal, Filebeat example | ✅ |
+| **v1.1** | Swagger UI, welcome page, `make:test` (usecase + handler layer), `wapgo upgrade` | ✅ |
+| **v1.2** | **Connection management**: RabbitMQ shared `Connection`, blocking `Subscribe` + auto-reconnect; Redis pool config (6 ENV vars); Kafka backoff + session config; `make:worker` | ✅ |
 
 Coverage semua paket > 80%. `go build ./...` dan `go vet ./...` bersih.
 
@@ -634,18 +775,31 @@ Coverage semua paket > 80%. `go build ./...` dan `go vet ./...` bersih.
 APP_NAME=my-service
 APP_ENV=development
 APP_PORT=8080
+APP_CORS_ALLOWED_ORIGINS=http://localhost:3000
 
 # Database
-DB_DRIVER=mysql
+DB_DRIVER=postgres
 DB_HOST=localhost
-DB_PORT=3306
+DB_PORT=5432
 DB_NAME=mydb
-DB_USER=root
+DB_USER=postgres
 DB_PASSWORD=secret
+DB_MAX_OPEN_CONNS=25
+DB_MAX_IDLE_CONNS=5
+DB_CONN_MAX_LIFE=5m
+DB_AUTO_MIGRATE=true
+DB_SSL_MODE=disable
 
 # Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
+REDIS_URL=redis://localhost:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+REDIS_POOL_SIZE=20        # max koneksi ke Redis
+REDIS_MIN_IDLE_CONNS=5    # koneksi idle minimal
+REDIS_DIAL_TIMEOUT=5s
+REDIS_READ_TIMEOUT=3s
+REDIS_WRITE_TIMEOUT=3s
+REDIS_MAX_RETRIES=3
 
 # JWT (wajib ≥ 32 karakter)
 JWT_SECRET=supersecretkey-that-is-at-least-32-chars
@@ -653,12 +807,13 @@ JWT_EXPIRY=24h
 JWT_ISSUER=my-service
 JWT_AUDIENCE=my-client
 
-# Kafka (opsional)
+# Kafka (opsional — biarkan kosong jika tidak dipakai)
 KAFKA_BROKERS=localhost:9092
 KAFKA_GROUP_ID=my-service-group
 
-# RabbitMQ (opsional)
+# RabbitMQ (opsional — biarkan kosong jika tidak dipakai)
 RABBITMQ_DSN=amqp://guest:guest@localhost:5672/
+RABBITMQ_EXCHANGE=my-service-exchange
 
 # Observability — pilih salah satu
 
@@ -679,9 +834,10 @@ ELASTIC_APM_ACTIVE=true
 # OBSERVABILITY_PROVIDER=none
 
 # Logging (4 structured log sinks → logs/)
+LOG_LEVEL=info
 LOG_DIR=logs
-LOG_ROTATION=size       # size | daily
+LOG_ROTATION=size         # size | daily
 LOG_MAX_AGE_DAYS=30
-LOG_HTTP_BODIES=false   # true = catat body request/response di api.log
-LOG_BODY_MAX_BYTES=8192
+LOG_HTTP_BODIES=false     # true = catat body request/response di api.log
+LOG_BODY_MAX_BYTES=16384
 ```

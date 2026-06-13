@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"bufio"
 	"fmt"
 	"io/fs"
 	"os"
@@ -124,23 +123,16 @@ func Scaffold(fsys fs.FS, opts ScaffoldOptions, targetDir string) error {
 				return fmt.Errorf("parse skeleton template %s: %w", path, err)
 			}
 
+			var buf strings.Builder
+			if terr := tmpl.Execute(&buf, data); terr != nil {
+				return fmt.Errorf("execute skeleton template %s: %w", path, terr)
+			}
+			rendered := strings.ReplaceAll(buf.String(), skeletonModule, opts.Module)
+
 			if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 				return err
 			}
-			f, err := os.Create(outPath)
-			if err != nil {
-				return err
-			}
-			w := bufio.NewWriter(f)
-			if terr := tmpl.Execute(w, data); terr != nil {
-				f.Close()
-				return fmt.Errorf("execute skeleton template %s: %w", path, terr)
-			}
-			if ferr := w.Flush(); ferr != nil {
-				f.Close()
-				return ferr
-			}
-			return f.Close()
+			return os.WriteFile(outPath, []byte(rendered), 0o644)
 		}
 
 		// Plain file — replace the module path placeholder and drop the

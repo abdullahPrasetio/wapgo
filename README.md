@@ -111,15 +111,19 @@ wapgo make:all product
 - SSRF guard — blocks loopback / private / link-local destinations; supports allowlist.
 - TLS verify ON, minimum TLS 1.2, response body capped at 10 MB.
 
-### CLI (v0.4)
+### CLI (v0.4 +)
 ```bash
-wapgo new <project> --module github.com/me/svc   # scaffold full project
-wapgo make:all <name>                             # generate 8 domain files
+wapgo new <project> --module github.com/me/svc       # scaffold full project
+wapgo make:all <name>                                 # generate 8 domain files
 wapgo make:model | make:repo | make:usecase | make:controller | make:route | make:client
-wapgo add redis | kafka | rabbitmq                # add optional feature to existing project
-wapgo list                                        # list generated domains in current project
-wapgo upgrade                                     # check and self-update to latest release
-wapgo upgrade --check                             # check only, do not install
+wapgo make:migration <name>                           # timestamped up/down SQL migration
+wapgo make:test <name> [--layer usecase|handler]      # unit test boilerplate
+wapgo make:event <name>                               # Kafka event producer + consumer
+wapgo make:worker [name] [--broker kafka|rabbitmq|both]  # standalone worker binary
+wapgo add redis | kafka | rabbitmq                    # add optional feature to existing project
+wapgo list                                            # list generated domains in current project
+wapgo upgrade                                         # check and self-update to latest release
+wapgo upgrade --check                                 # check only, do not install
 wapgo version
 ```
 
@@ -168,8 +172,15 @@ All settings are read from ENV (highest priority) → `config/config.yaml` → d
 | `JWT_EXPIRY` | `24h` | Go duration string |
 | `OBSERVABILITY_PROVIDER` | `elastic_apm` | `otel`, `elastic_apm`, or `none` |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
+| `REDIS_POOL_SIZE` | `20` | Max connections in pool |
+| `REDIS_MIN_IDLE_CONNS` | `5` | Min idle connections kept warm |
+| `REDIS_DIAL_TIMEOUT` | `5s` | Connection open timeout |
+| `REDIS_READ_TIMEOUT` | `3s` | Per-command read timeout |
+| `REDIS_WRITE_TIMEOUT` | `3s` | Per-command write timeout |
+| `REDIS_MAX_RETRIES` | `3` | Automatic retry count |
 | `KAFKA_BROKERS` | — | Comma-separated `host:port` |
 | `RABBITMQ_DSN` | — | `amqp://user:pass@host:5672/vhost` |
+| `RABBITMQ_EXCHANGE` | `{app-name}-exchange` | Topic exchange name |
 | `LOG_DIR` | `logs` | Directory for the 4 structured log files |
 | `LOG_ROTATION` | `size` | `size` (lumberjack, 100 MB) or `daily` (date-stamped) |
 | `LOG_MAX_AGE_DAYS` | `30` | Retention in days for log files |

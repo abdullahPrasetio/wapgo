@@ -58,11 +58,18 @@ func main() {
 	fmt.Printf("RabbitMQ health: %s\n", rmqStatus)
 
 	if rmqStatus == "ok" {
-		publisher, err := rabbitmq.NewPublisher(dsn, "user-events", logger)
+		// One shared connection for publisher + consumer in this process.
+		rmqConn, err := rabbitmq.NewConnection(dsn, logger)
+		if err != nil {
+			log.Fatalf("rabbitmq connection: %v", err)
+		}
+		defer rmqConn.Close() //nolint:errcheck
+
+		publisher, err := rabbitmq.NewPublisher(rmqConn, "user-events", logger)
 		if err != nil {
 			log.Fatalf("rabbitmq publisher: %v", err)
 		}
-		defer publisher.Close()
+		defer publisher.Close() //nolint:errcheck
 
 		for i := range 3 {
 			msg := rabbitmq.Message{
@@ -76,22 +83,19 @@ func main() {
 			}
 		}
 
-		// ── Consumer ─────────────────────────────────────────────────────────
 		fmt.Println("\n=== RabbitMQ Consumer (drain 3 messages, 3s timeout) ===")
-		consumer, err := rabbitmq.NewConsumer(dsn, "user-events", logger)
-		if err != nil {
-			log.Fatalf("rabbitmq consumer: %v", err)
-		}
-		defer consumer.Close()
+		consumer := rabbitmq.NewConsumer(rmqConn, "user-events", logger)
 
 		received := make(chan struct{}, 3)
-		if err := consumer.Subscribe("user-q", "user.created", func(_ context.Context, msg rabbitmq.Message) error {
-			fmt.Printf("  received: key=%s body=%s\n", msg.RoutingKey, msg.Body)
-			received <- struct{}{}
-			return nil
-		}); err != nil {
-			log.Fatalf("subscribe: %v", err)
-		}
+		subCtx, subCancel := context.WithTimeout(ctx, 3*time.Second)
+		defer subCancel()
+		go func() {
+			consumer.Subscribe(subCtx, "user-q", "user.created", func(_ context.Context, msg rabbitmq.Message) error { //nolint:errcheck
+				fmt.Printf("  received: key=%s body=%s\n", msg.RoutingKey, msg.Body)
+				received <- struct{}{}
+				return nil
+			})
+		}()
 
 		timeout := time.After(3 * time.Second)
 		for range 3 {

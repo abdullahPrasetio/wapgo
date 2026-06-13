@@ -18,34 +18,23 @@ type Config struct {
 	Services      ServiceURLs         `mapstructure:"services"`
 	JWT           JWTConfig           `mapstructure:"jwt"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
-	Health        HealthConfig        `mapstructure:"health"`
-}
-
-// HealthConfig controls health check probe behaviour.
-type HealthConfig struct {
-	// ProbeTimeout is the per-dependency timeout (DB ping, Redis ping, extras).
-	// Env: HEALTH_PROBE_TIMEOUT (Go duration string, e.g. "2s"). Default: "2s".
-	ProbeTimeout string `mapstructure:"probe_timeout"`
 }
 
 // JWTConfig holds parameters for HS256 token signing and verification.
 type JWTConfig struct {
-	Secret   string `mapstructure:"secret"`   // JWT_SECRET — must be ≥32 bytes in production
-	Issuer   string `mapstructure:"issuer"`   // JWT_ISSUER
-	Audience string `mapstructure:"audience"` // JWT_AUDIENCE
-	Expiry   string `mapstructure:"expiry"`   // JWT_EXPIRY — Go duration string, e.g. "24h"
+	Secret   string `mapstructure:"secret"`
+	Issuer   string `mapstructure:"issuer"`
+	Audience string `mapstructure:"audience"`
+	Expiry   string `mapstructure:"expiry"`
 }
 
 // ObservabilityConfig controls which observability backend is used.
-//
-// Provider chooses the backend:
-//   - "otel"        (default) — OpenTelemetry SDK, OTLP export
-//   - "elastic_apm" — Elastic APM Go agent; agent ENV vars (ELASTIC_APM_*)
-//     are read automatically by the agent and do not need to appear here.
+//   - "otel" (default) — OpenTelemetry SDK
+//   - "elastic_apm"    — Elastic APM Go agent (reads ELASTIC_APM_* ENV vars natively)
 type ObservabilityConfig struct {
-	Provider       string `mapstructure:"provider"`        // OBSERVABILITY_PROVIDER
-	TracingEnabled bool   `mapstructure:"tracing_enabled"` // OTEL_TRACING_ENABLED (otel only)
-	OTLPEndpoint   string `mapstructure:"otlp_endpoint"`   // OTEL_EXPORTER_OTLP_ENDPOINT (otel only)
+	Provider       string `mapstructure:"provider"`
+	TracingEnabled bool   `mapstructure:"tracing_enabled"`
+	OTLPEndpoint   string `mapstructure:"otlp_endpoint"`
 }
 
 type AppConfig struct {
@@ -64,7 +53,7 @@ type DBConfig struct {
 	Password     string `mapstructure:"password"`
 	MaxOpenConns int    `mapstructure:"max_open_conns"`
 	MaxIdleConns int    `mapstructure:"max_idle_conns"`
-	ConnMaxLife  string `mapstructure:"conn_max_life"` // e.g. "5m"
+	ConnMaxLife  string `mapstructure:"conn_max_life"`
 	AutoMigrate  bool   `mapstructure:"auto_migrate"`
 	SSLMode      string `mapstructure:"sslmode"`
 }
@@ -73,12 +62,12 @@ type RedisConfig struct {
 	URL          string `mapstructure:"url"`
 	Password     string `mapstructure:"password"`
 	DB           int    `mapstructure:"db"`
-	PoolSize     int    `mapstructure:"pool_size"`      // REDIS_POOL_SIZE     default 20
-	MinIdleConns int    `mapstructure:"min_idle_conns"` // REDIS_MIN_IDLE_CONNS default 5
-	DialTimeout  string `mapstructure:"dial_timeout"`   // REDIS_DIAL_TIMEOUT   default "5s"
-	ReadTimeout  string `mapstructure:"read_timeout"`   // REDIS_READ_TIMEOUT   default "3s"
-	WriteTimeout string `mapstructure:"write_timeout"`  // REDIS_WRITE_TIMEOUT  default "3s"
-	MaxRetries   int    `mapstructure:"max_retries"`    // REDIS_MAX_RETRIES    default 3
+	PoolSize     int    `mapstructure:"pool_size"`
+	MinIdleConns int    `mapstructure:"min_idle_conns"`
+	DialTimeout  string `mapstructure:"dial_timeout"`
+	ReadTimeout  string `mapstructure:"read_timeout"`
+	WriteTimeout string `mapstructure:"write_timeout"`
+	MaxRetries   int    `mapstructure:"max_retries"`
 }
 
 type KafkaConfig struct {
@@ -115,11 +104,9 @@ func Load() (*Config, error) {
 	v.AddConfigPath("./config")
 	v.AddConfigPath(".")
 
-	// ENV vars override yaml — highest priority
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	// Explicit bindings ensure ENV names like DB_MAX_OPEN_CONNS map correctly
 	bindings := map[string]string{
 		"app.env":                       "APP_ENV",
 		"app.port":                      "APP_PORT",
@@ -136,15 +123,15 @@ func Load() (*Config, error) {
 		"db.conn_max_life":              "DB_CONN_MAX_LIFE",
 		"db.auto_migrate":               "DB_AUTO_MIGRATE",
 		"db.sslmode":                    "DB_SSL_MODE",
-		"redis.url":           "REDIS_URL",
-		"redis.password":      "REDIS_PASSWORD",
-		"redis.db":            "REDIS_DB",
-		"redis.pool_size":     "REDIS_POOL_SIZE",
+		"redis.url":            "REDIS_URL",
+		"redis.password":       "REDIS_PASSWORD",
+		"redis.db":             "REDIS_DB",
+		"redis.pool_size":      "REDIS_POOL_SIZE",
 		"redis.min_idle_conns": "REDIS_MIN_IDLE_CONNS",
-		"redis.dial_timeout":  "REDIS_DIAL_TIMEOUT",
-		"redis.read_timeout":  "REDIS_READ_TIMEOUT",
-		"redis.write_timeout": "REDIS_WRITE_TIMEOUT",
-		"redis.max_retries":   "REDIS_MAX_RETRIES",
+		"redis.dial_timeout":   "REDIS_DIAL_TIMEOUT",
+		"redis.read_timeout":   "REDIS_READ_TIMEOUT",
+		"redis.write_timeout":  "REDIS_WRITE_TIMEOUT",
+		"redis.max_retries":    "REDIS_MAX_RETRIES",
 		"kafka.brokers":                 "KAFKA_BROKERS",
 		"kafka.group_id":                "KAFKA_GROUP_ID",
 		"rabbitmq.dsn":                  "RABBITMQ_DSN",
@@ -166,7 +153,6 @@ func Load() (*Config, error) {
 		"observability.provider":        "OBSERVABILITY_PROVIDER",
 		"observability.tracing_enabled": "OTEL_TRACING_ENABLED",
 		"observability.otlp_endpoint":   "OTEL_EXPORTER_OTLP_ENDPOINT",
-		"health.probe_timeout":          "HEALTH_PROBE_TIMEOUT",
 	}
 	for key, env := range bindings {
 		if err := v.BindEnv(key, env); err != nil {
@@ -174,14 +160,13 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Defaults
 	v.SetDefault("app.env", "development")
 	v.SetDefault("app.port", "8080")
-	v.SetDefault("app.name", "wapgo-service")
+	v.SetDefault("app.name", "service")
 	v.SetDefault("app.cors_allowed_origins", "http://localhost:3000")
-	v.SetDefault("db.driver", "mysql")
+	v.SetDefault("db.driver", "postgres")
 	v.SetDefault("db.host", "localhost")
-	v.SetDefault("db.port", "3306")
+	v.SetDefault("db.port", "5432")
 	v.SetDefault("db.max_open_conns", 25)
 	v.SetDefault("db.max_idle_conns", 5)
 	v.SetDefault("db.conn_max_life", "5m")
@@ -203,12 +188,11 @@ func Load() (*Config, error) {
 	v.SetDefault("log.max_age_days", 30)
 	v.SetDefault("log.body_max_bytes", 16384)
 	v.SetDefault("log.http_bodies", true)
-	v.SetDefault("jwt.issuer", "wapgo-service")
-	v.SetDefault("jwt.audience", "wapgo-api")
+	v.SetDefault("jwt.issuer", "service")
+	v.SetDefault("jwt.audience", "api")
 	v.SetDefault("jwt.expiry", "24h")
-	v.SetDefault("observability.provider", "elastic_apm")
+	v.SetDefault("observability.provider", "otel")
 	v.SetDefault("observability.tracing_enabled", false)
-	v.SetDefault("health.probe_timeout", "2s")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
