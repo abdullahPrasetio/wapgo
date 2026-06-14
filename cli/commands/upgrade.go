@@ -105,6 +105,7 @@ func runUpgrade(checkOnly bool) error {
 	c := exec.Command(goExe, "install", installRef)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
+	c.Env = append(os.Environ(), "GOPROXY=proxy.golang.org,direct", "GONOSUMDB=github.com/abdullahPrasetio/*")
 
 	if err := c.Run(); err != nil {
 		fmt.Printf("\n  %s\n\n", stErr.Render("✗ go install failed — see output above"))
