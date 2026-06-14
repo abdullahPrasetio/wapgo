@@ -58,7 +58,7 @@ func main() {
 	// ── Observability provider ────────────────────────────────────────────────
 	// Selects OTel or Elastic APM based on OBSERVABILITY_PROVIDER env var.
 	// Prometheus RED metrics (MetricsMiddleware) run independently of this choice.
-	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version)
+	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version, cfg.App.Env)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to setup observability provider")
 	}
@@ -200,6 +200,25 @@ func newRedisClient(cfg *config.RedisConfig) *redis.Client {
 	}
 	if cfg.DB > 0 {
 		opts.DB = cfg.DB
+	}
+
+	if cfg.PoolSize > 0 {
+		opts.PoolSize = cfg.PoolSize
+	}
+	if cfg.MinIdleConns > 0 {
+		opts.MinIdleConns = cfg.MinIdleConns
+	}
+	if cfg.MaxRetries > 0 {
+		opts.MaxRetries = cfg.MaxRetries
+	}
+	if d, err := time.ParseDuration(cfg.DialTimeout); err == nil {
+		opts.DialTimeout = d
+	}
+	if d, err := time.ParseDuration(cfg.ReadTimeout); err == nil {
+		opts.ReadTimeout = d
+	}
+	if d, err := time.ParseDuration(cfg.WriteTimeout); err == nil {
+		opts.WriteTimeout = d
 	}
 	return redis.NewClient(opts)
 }

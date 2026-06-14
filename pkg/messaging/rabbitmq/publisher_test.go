@@ -32,43 +32,6 @@ func (m *mockPublishChan) PublishWithContext(_ context.Context, _, key string, _
 }
 func (m *mockPublishChan) Close() error { return m.closeErr }
 
-// mockPubConn implements amqpConnForPub.
-type mockPubConn struct {
-	ch       publishChan
-	chanErr  error
-	closeErr error
-	closed   bool
-}
-
-func (m *mockPubConn) Channel() (publishChan, error) { return m.ch, m.chanErr }
-func (m *mockPubConn) Close() error                  { m.closed = true; return m.closeErr }
-
-// ── newPublisherWithConn ──────────────────────────────────────────────────────
-
-func TestNewPublisher_ChannelError(t *testing.T) {
-	conn := &mockPubConn{chanErr: errors.New("channel failed")}
-	_, err := newPublisherWithConn(conn, "ex", zerolog.Nop())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rabbitmq channel")
-	assert.True(t, conn.closed) // conn.Close() called on channel error
-}
-
-func TestNewPublisher_ExchangeDeclareError(t *testing.T) {
-	ch := &mockPublishChan{declareErr: errors.New("declare failed")}
-	conn := &mockPubConn{ch: ch}
-	_, err := newPublisherWithConn(conn, "ex", zerolog.Nop())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rabbitmq exchange declare")
-}
-
-func TestNewPublisher_Success(t *testing.T) {
-	ch := &mockPublishChan{}
-	conn := &mockPubConn{ch: ch}
-	p, err := newPublisherWithConn(conn, "ex", zerolog.Nop())
-	require.NoError(t, err)
-	assert.NotNil(t, p)
-}
-
 // ── Publish ───────────────────────────────────────────────────────────────────
 
 func TestPublisher_Publish_Success(t *testing.T) {
@@ -107,26 +70,19 @@ func TestPublisher_Publish_PersistentDelivery(t *testing.T) {
 	assert.Equal(t, uint8(amqp.Persistent), ch.publishedMsgs[0].DeliveryMode)
 }
 
-func TestPublisher_Publish_Error(t *testing.T) {
+func TestPublisher_Publish_Error_NoConn(t *testing.T) {
+	// Without a Connection, retry is skipped and the original error is returned.
 	ch := &mockPublishChan{publishErr: errors.New("channel closed")}
 	p := newPublisherFrom(ch, nil, "ex", zerolog.Nop())
 	err := p.Publish(context.Background(), Message{RoutingKey: "rk", Body: []byte("{}")})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rabbitmq publish")
 }
 
 // ── Close ─────────────────────────────────────────────────────────────────────
 
-func TestPublisher_Close_NoConn(t *testing.T) {
+func TestPublisher_Close(t *testing.T) {
 	p := newPublisherFrom(&mockPublishChan{}, nil, "ex", zerolog.Nop())
 	assert.NoError(t, p.Close())
-}
-
-func TestPublisher_Close_WithConn(t *testing.T) {
-	conn := &mockCloser{}
-	p := newPublisherFrom(&mockPublishChan{}, conn, "ex", zerolog.Nop())
-	require.NoError(t, p.Close())
-	assert.True(t, conn.closed)
 }
 
 func TestPublisher_Close_ChanError(t *testing.T) {
@@ -135,10 +91,10 @@ func TestPublisher_Close_ChanError(t *testing.T) {
 	assert.Error(t, p.Close())
 }
 
-// ── NewPublisher ──────────────────────────────────────────────────────────────
+// ── NewConnection bad DSN ─────────────────────────────────────────────────────
 
-func TestNewPublisher_BadDSN(t *testing.T) {
-	_, err := NewPublisher("amqp://bad-host:5672/", "ex", zerolog.Nop())
+func TestNewConnection_BadDSN(t *testing.T) {
+	_, err := NewConnection("amqp://bad-host:5672/", zerolog.Nop())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rabbitmq dial")
 }

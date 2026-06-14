@@ -54,6 +54,28 @@ var features = map[string]feature{
 			"Add a rabbitmq service to docker-compose.yml",
 		},
 	},
+	"email": {
+		name:    "email",
+		subdir:  "pkg/notification/email",
+		summary: "SMTP mailer dengan OTel tracing dan journal integration",
+		steps: []string{
+			"Wire di cmd/api/main.go:",
+			"    mailer := email.NewSMTPMailer(email.Config{Host: cfg.SMTP.Host, ...}, logger)",
+			"Inject mailer ke usecase/handler yang butuh kirim email",
+			"Tambah ke .env: SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM",
+		},
+	},
+	"firebase": {
+		name:    "firebase",
+		subdir:  "pkg/notification/firebase",
+		summary: "Firebase Cloud Messaging (FCM) push notification via FCM v1 HTTP API",
+		steps: []string{
+			"Wire di cmd/api/main.go:",
+			"    pusher, err := firebase.NewFCMClient(os.Getenv(\"FIREBASE_CREDENTIALS_JSON\"), logger)",
+			"Inject pusher ke usecase/handler yang butuh kirim push notification",
+			"Tambah ke .env: FIREBASE_CREDENTIALS_JSON (isi JSON service account, lihat .env.example)",
+		},
+	},
 }
 
 func newAddCmd() *cobra.Command {
@@ -66,6 +88,8 @@ Available features:
   redis      Redis cache layer
   kafka      Kafka producer/consumer
   rabbitmq   RabbitMQ publisher/consumer
+  email      SMTP mailer
+  firebase   Firebase FCM push notification
 
 Example:
   wapgo add redis`,

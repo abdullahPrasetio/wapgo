@@ -7,6 +7,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **`wapgo make:worker [name] [--broker kafka|rabbitmq|both]`** — new CLI command that generates
+  a standalone worker binary entrypoint. Without a name: `cmd/worker/main.go`. With a name:
+  `cmd/worker-{name}/main.go`. The `--broker` flag selects which messaging integration to scaffold;
+  omitting it auto-detects from `go.mod` (checks for `segmentio/kafka-go` and `rabbitmq/amqp091-go`).
+  Two Makefile targets (`run-{suffix}` and `build-{suffix}`) are appended automatically when a
+  `Makefile` is detected. Generated worker uses the shared `*Connection` pattern for RabbitMQ
+  so a single TCP socket serves all consumers.
+- **RabbitMQ — shared connection type** (`pkg/messaging/rabbitmq.Connection`): a single
+  `*Connection` is created once per process and passed to all `Publisher` and `Consumer` instances.
+  Eliminates the connection-explosion problem where N consumers/publishers previously created N TCP
+  sockets to the broker, crashing RabbitMQ under load.
+  - `NewConnection(dsn, log)` — dials with 5 s timeout + 10 s heartbeat; double-checked locking
+    for reconnect to prevent concurrent races.
+  - `Connection.Channel()` — opens a new AMQP channel; auto-reconnects the underlying connection
+    transparently on channel failure.
+  - `Connection.Close()` — shuts down the shared TCP connection; call once during shutdown.
+- **RabbitMQ — blocking `Subscribe` with auto-reconnect**: `Consumer.Subscribe(ctx, queue, rk, handler)`
+  now blocks until `ctx` is cancelled, reconnecting the channel automatically with exponential
+  backoff (1 s → 30 s cap) when the broker restarts. Channel death is detected via `amqp.NotifyClose`.
+  > ⚠️ **BREAKING CHANGE** — `Subscribe` signature changed: added `ctx context.Context` as first
+  > parameter, and the method now **blocks** (previously returned immediately and spun an internal
+  > goroutine). Callers must wrap in a goroutine: `go consumer.Subscribe(ctx, queue, rk, handler)`.
+  > The `cmd/worker-*/main.go` scaffold and all skeleton templates already use this pattern.
+- **RabbitMQ — publisher channel retry**: `Publisher.Publish` reopens its channel once on error
+  before returning, so a broker restart is transparent to callers in most cases.
+- **Kafka — exponential backoff on fetch error**: `Consumer.Start` now waits 1 s before the first
+  retry after a fetch failure, doubling each attempt up to 30 s, using a `select` on `ctx.Done`
+  so shutdown is still immediate. Backoff resets to 1 s on the next successful fetch.
+- **Kafka — session configuration**: `HeartbeatInterval: 3s`, `SessionTimeout: 30s`,
+  `RebalanceTimeout: 30s`, and `ErrorLogger` (surfaces internal reader errors via zerolog) added
+  to `NewConsumer`'s `ReaderConfig`.
+- **Redis — connection pool configuration**: six new fields in `RedisConfig` with explicit
+  ENV bindings and sane defaults:
+  `REDIS_POOL_SIZE` (20), `REDIS_MIN_IDLE_CONNS` (5), `REDIS_DIAL_TIMEOUT` (5s),
+  `REDIS_READ_TIMEOUT` (3s), `REDIS_WRITE_TIMEOUT` (3s), `REDIS_MAX_RETRIES` (3).
+  `REDIS_URL` replaces the old `REDIS_HOST`/`REDIS_PORT` pair (URL format: `redis://host:port`).
+
+### Fixed
+- **Skeleton IDE false positives** — all 44 plain `.go` skeleton files under
+  `cli/generator/templates/skeleton/` renamed to `.go.tmpl`. The `//go:build ignore` guard
+  (needed to exclude skeleton sources from the CLI build) caused gopls to analyze each file
+  independently, making cross-file references (e.g. `Connection` in `connection.go` referenced
+  from `consumer.go`) appear as "undefined" in the IDE. With `.go.tmpl` extension gopls skips
+  these files entirely; the generated user project is unaffected.
+  `scaffold.go` updated: template files are now rendered to a `strings.Builder` first so the
+  module-path placeholder (`github.com/abdullahPrasetio/wapgo`) is replaced after rendering,
+  keeping `AddFeatureFiles` consistent.
+
+---
+
+## [1.2.0] — 2026-06-12
+
+### Added
+- **`wapgo upgrade`** — new CLI command to check for a newer release and self-update via
+  `go install`. Flags: `--check` (report only, no install). Offline-safe: network errors
+  are non-fatal warnings.
+
+### Fixed
+- **`wapgo new` scaffold** — `go mod tidy` no longer fails after scaffolding. Root cause:
+  `cmd/api/main.go.tmpl` imported `[[.Module]]/docs` (Swagger generated package) which
+  does not exist until the user runs `swag init`. The import has been removed.
+  `router.go` template also had a `github.com/gofiber/swagger` import that is not included
+  in the generated `go.mod`; the swagger route and its dependency have been removed from
+  the skeleton (users can add it manually via `wapgo add` or by generating docs separately).
+
 ---
 
 ## [1.1.0] — 2026-06-03

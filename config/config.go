@@ -19,6 +19,31 @@ type Config struct {
 	JWT           JWTConfig           `mapstructure:"jwt"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
 	Health        HealthConfig        `mapstructure:"health"`
+	Notification  NotificationConfig  `mapstructure:"notification"`
+}
+
+// NotificationConfig groups optional notification add-on settings.
+// Both sub-sections are zero-valued when the add-on is not used.
+type NotificationConfig struct {
+	SMTP     SMTPConfig     `mapstructure:"smtp"`
+	Firebase FirebaseConfig `mapstructure:"firebase"`
+}
+
+// SMTPConfig holds parameters for the pkg/notification/email add-on.
+type SMTPConfig struct {
+	Host     string `mapstructure:"host"`     // SMTP_HOST
+	Port     int    `mapstructure:"port"`     // SMTP_PORT  (default 587)
+	Username string `mapstructure:"username"` // SMTP_USERNAME
+	Password string `mapstructure:"password"` // SMTP_PASSWORD
+	From     string `mapstructure:"from"`     // SMTP_FROM
+	Timeout  string `mapstructure:"timeout"`  // SMTP_TIMEOUT  Go duration (default "10s")
+}
+
+// FirebaseConfig holds parameters for the pkg/notification/firebase add-on.
+type FirebaseConfig struct {
+	// CredentialsJSON is the full JSON content of the Firebase service account key.
+	// Set via FIREBASE_CREDENTIALS_JSON (preferred in Kubernetes Secrets).
+	CredentialsJSON string `mapstructure:"credentials_json"`
 }
 
 // HealthConfig controls health check probe behaviour.
@@ -70,9 +95,15 @@ type DBConfig struct {
 }
 
 type RedisConfig struct {
-	URL      string `mapstructure:"url"`
-	Password string `mapstructure:"password"`
-	DB       int    `mapstructure:"db"`
+	URL          string `mapstructure:"url"`
+	Password     string `mapstructure:"password"`
+	DB           int    `mapstructure:"db"`
+	PoolSize     int    `mapstructure:"pool_size"`      // REDIS_POOL_SIZE     default 20
+	MinIdleConns int    `mapstructure:"min_idle_conns"` // REDIS_MIN_IDLE_CONNS default 5
+	DialTimeout  string `mapstructure:"dial_timeout"`   // REDIS_DIAL_TIMEOUT   default "5s"
+	ReadTimeout  string `mapstructure:"read_timeout"`   // REDIS_READ_TIMEOUT   default "3s"
+	WriteTimeout string `mapstructure:"write_timeout"`  // REDIS_WRITE_TIMEOUT  default "3s"
+	MaxRetries   int    `mapstructure:"max_retries"`    // REDIS_MAX_RETRIES    default 3
 }
 
 type KafkaConfig struct {
@@ -130,9 +161,15 @@ func Load() (*Config, error) {
 		"db.conn_max_life":              "DB_CONN_MAX_LIFE",
 		"db.auto_migrate":               "DB_AUTO_MIGRATE",
 		"db.sslmode":                    "DB_SSL_MODE",
-		"redis.url":                     "REDIS_URL",
-		"redis.password":                "REDIS_PASSWORD",
-		"redis.db":                      "REDIS_DB",
+		"redis.url":           "REDIS_URL",
+		"redis.password":      "REDIS_PASSWORD",
+		"redis.db":            "REDIS_DB",
+		"redis.pool_size":     "REDIS_POOL_SIZE",
+		"redis.min_idle_conns": "REDIS_MIN_IDLE_CONNS",
+		"redis.dial_timeout":  "REDIS_DIAL_TIMEOUT",
+		"redis.read_timeout":  "REDIS_READ_TIMEOUT",
+		"redis.write_timeout": "REDIS_WRITE_TIMEOUT",
+		"redis.max_retries":   "REDIS_MAX_RETRIES",
 		"kafka.brokers":                 "KAFKA_BROKERS",
 		"kafka.group_id":                "KAFKA_GROUP_ID",
 		"rabbitmq.dsn":                  "RABBITMQ_DSN",
@@ -154,7 +191,14 @@ func Load() (*Config, error) {
 		"observability.provider":        "OBSERVABILITY_PROVIDER",
 		"observability.tracing_enabled": "OTEL_TRACING_ENABLED",
 		"observability.otlp_endpoint":   "OTEL_EXPORTER_OTLP_ENDPOINT",
-		"health.probe_timeout":          "HEALTH_PROBE_TIMEOUT",
+		"health.probe_timeout":                      "HEALTH_PROBE_TIMEOUT",
+		"notification.smtp.host":                    "SMTP_HOST",
+		"notification.smtp.port":                    "SMTP_PORT",
+		"notification.smtp.username":                "SMTP_USERNAME",
+		"notification.smtp.password":                "SMTP_PASSWORD",
+		"notification.smtp.from":                    "SMTP_FROM",
+		"notification.smtp.timeout":                 "SMTP_TIMEOUT",
+		"notification.firebase.credentials_json":    "FIREBASE_CREDENTIALS_JSON",
 	}
 	for key, env := range bindings {
 		if err := v.BindEnv(key, env); err != nil {
@@ -177,6 +221,12 @@ func Load() (*Config, error) {
 	v.SetDefault("db.sslmode", "disable")
 	v.SetDefault("redis.url", "redis://localhost:6379")
 	v.SetDefault("redis.db", 0)
+	v.SetDefault("redis.pool_size", 20)
+	v.SetDefault("redis.min_idle_conns", 5)
+	v.SetDefault("redis.dial_timeout", "5s")
+	v.SetDefault("redis.read_timeout", "3s")
+	v.SetDefault("redis.write_timeout", "3s")
+	v.SetDefault("redis.max_retries", 3)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.to_file", false)
 	v.SetDefault("log.file_path", "logs/app.log")
@@ -191,6 +241,8 @@ func Load() (*Config, error) {
 	v.SetDefault("observability.provider", "elastic_apm")
 	v.SetDefault("observability.tracing_enabled", false)
 	v.SetDefault("health.probe_timeout", "2s")
+	v.SetDefault("notification.smtp.port", 587)
+	v.SetDefault("notification.smtp.timeout", "10s")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

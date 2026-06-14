@@ -1,0 +1,97 @@
+package main
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/rs/zerolog/log"
+[[- if .Kafka ]]
+	kafkamsg "[[.Module]]/pkg/messaging/kafka"
+[[- end ]]
+[[- if .RabbitMQ ]]
+	rabbitmqmsg "[[.Module]]/pkg/messaging/rabbitmq"
+[[- end ]]
+
+	"[[.Module]]/config"
+	applogger "[[.Module]]/pkg/logger"
+	"[[.Module]]/pkg/observability"
+)
+
+const version = "0.1.0"
+
+func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load config")
+	}
+
+	applogger.Setup(cfg.App.Env, cfg.Log.Level, cfg.Log.FilePath, cfg.Log.ToFile, cfg.App.Name)
+	if err := applogger.SetupSinks(applogger.SinkConfig{
+		Dir:        cfg.Log.Dir,
+		Rotation:   cfg.Log.Rotation,
+		MaxAgeDays: cfg.Log.MaxAgeDays,
+		Console:    cfg.App.Env != "production",
+	}); err != nil {
+		log.Fatal().Err(err).Msg("failed to setup log sinks")
+	}
+
+	log.Info().Str("version", version).Str("env", cfg.App.Env).Str("worker", "[[.Suffix]]").Msg("starting worker")
+
+	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name+"-[[.Suffix]]", version, cfg.App.Env)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to setup observability")
+	}
+	defer obsProvider.Shutdown(context.Background()) //nolint:errcheck
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+[[- if .Kafka ]]
+
+	// ── Kafka consumer ────────────────────────────────────────────────────────
+	if cfg.Kafka.Brokers != "" {
+		kConsumer := kafkamsg.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.GroupID, "events", log.Logger)
+		defer kConsumer.Close() //nolint:errcheck
+		go func() {
+			if err := kConsumer.Start(ctx, func(ctx context.Context, msg kafkamsg.Message) error {
+				// TODO: dispatch to your use cases here
+				log.Info().Str("topic", msg.Topic).Str("key", string(msg.Key)).Msg("kafka message received")
+				return nil
+			}); err != nil {
+				log.Error().Err(err).Msg("kafka consumer stopped")
+			}
+		}()
+		log.Info().Str("brokers", cfg.Kafka.Brokers).Str("group", cfg.Kafka.GroupID).Msg("kafka consumer started")
+	}
+[[- end ]]
+[[- if .RabbitMQ ]]
+
+	// ── RabbitMQ consumer ────────────────────────────────────────────────────
+	// One shared connection for all consumers and publishers in this process.
+	if cfg.RabbitMQ.DSN != "" {
+		rmqConn, err := rabbitmqmsg.NewConnection(cfg.RabbitMQ.DSN, log.Logger)
+		if err != nil {
+			log.Fatal().Err(err).Msg("rabbitmq connection failed")
+		}
+		defer rmqConn.Close() //nolint:errcheck
+
+		rConsumer := rabbitmqmsg.NewConsumer(rmqConn, cfg.RabbitMQ.Exchange, log.Logger)
+		go func() {
+			// Subscribe blocks and auto-reconnects; returns only when ctx is done.
+			if err := rConsumer.Subscribe(ctx, "events", "events.*", func(ctx context.Context, msg rabbitmqmsg.Message) error {
+				// TODO: dispatch to your use cases here
+				log.Info().Str("routing_key", msg.RoutingKey).Msg("rabbitmq message received")
+				return nil
+			}); err != nil {
+				log.Error().Err(err).Msg("rabbitmq consumer stopped")
+			}
+		}()
+		log.Info().Str("exchange", cfg.RabbitMQ.Exchange).Msg("rabbitmq consumer started")
+	}
+[[- end ]]
+
+	log.Info().Msg("worker ready — waiting for messages")
+	<-ctx.Done()
+	log.Info().Msg("shutdown complete")
+}

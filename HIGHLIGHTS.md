@@ -124,21 +124,51 @@ JWT middleware siap pakai dengan `ExtractClaims` helper — tidak perlu parse to
 
 ---
 
-## 7. Messaging dengan API yang Konsisten
+## 7. Messaging dengan Connection Management Production-Grade
 
-Kafka dan RabbitMQ punya interface yang seragam:
+### Kafka — Backoff + Session Config
+Consumer Kafka memiliki exponential backoff (1 s → 30 s) pada fetch error, sehingga tidak membanjiri broker saat terjadi gangguan sementara. Shutdown tetap instan karena backoff menggunakan `select` pada `ctx.Done`. `HeartbeatInterval`, `SessionTimeout`, dan `RebalanceTimeout` dikonfigurasi untuk mencegah rebalancing macet.
 
+### RabbitMQ — Connection Pool per Proses
+
+**Sebelum (pola lama yang salah):**
 ```go
-// Kafka
-producer := kafka.NewProducer(brokers, logger)
-producer.Publish(ctx, kafka.Message{Topic: "...", Value: payload})
-
-// RabbitMQ
+// Setiap baris ini membuka satu koneksi TCP → 50 consumer = 50 koneksi = crash
 pub, _ := rabbitmq.NewPublisher(dsn, exchange, logger)
-pub.Publish(ctx, rabbitmq.Message{RoutingKey: "...", Body: payload})
+cons, _ := rabbitmq.NewConsumer(dsn, exchange, logger)
 ```
 
-Keduanya menyediakan `HealthCheck()` yang kompatibel dengan `/health` endpoint. Pindah provider messaging tidak mengubah cara usecase berinteraksi.
+**Sekarang (shared connection):**
+```go
+// Satu koneksi TCP untuk semua publisher + consumer dalam proses
+conn, _ := rabbitmq.NewConnection(dsn, logger)
+defer conn.Close()
+
+pub, _ := rabbitmq.NewPublisher(conn, exchange, logger)
+consumer := rabbitmq.NewConsumer(conn, exchange, logger)
+go consumer.Subscribe(ctx, "queue", "rk.*", handler)  // auto-reconnect
+```
+
+`Subscribe` bersifat blocking dan auto-reconnect ketika channel atau koneksi mati — pod tidak perlu direstart saat broker restart. Channel death dideteksi via `amqp.NotifyClose`, bukan polling.
+
+### Redis — Pool yang Dikonfigurasi
+
+```bash
+REDIS_POOL_SIZE=20        # default 10 → ditingkatkan ke 20
+REDIS_MIN_IDLE_CONNS=5    # selalu ada 5 koneksi siap
+REDIS_DIAL_TIMEOUT=5s
+REDIS_READ_TIMEOUT=3s
+REDIS_MAX_RETRIES=3
+```
+
+### Worker Binary (`wapgo make:worker`)
+
+```bash
+wapgo make:worker order --broker rabbitmq
+# → cmd/worker-order/main.go + Makefile targets: run-worker-order, build-worker-order
+```
+
+Consumer bisa dijalankan sebagai binary terpisah dari HTTP server, dengan scaling dan fault isolation independen.
 
 ---
 
@@ -184,5 +214,7 @@ Keuntungannya:
 | Request Journal | Tidak ada | Thirdparty[] + trace[] otomatis embed di record induk |
 | Code generation | Tidak ada | CLI wizard interaktif + scaffold semua layer |
 | Security | Tambah sendiri | Default aktif semua + header redaction bawaan |
-| Messaging | Tambah sendiri | Kafka + RabbitMQ dengan API konsisten + journal |
+| Messaging | Tambah sendiri | Kafka + RabbitMQ: shared connection, auto-reconnect, backoff, DLQ, journal |
+| Worker binary | Tambah sendiri | `make:worker` scaffold multi-domain consumer binary terpisah |
+| Redis pool | Default bare-minimum | Pool size, idle conns, timeout, retry — semua via ENV |
 | Container-ready | Perlu konfigurasi | ENV-first by design, Filebeat example tersedia |

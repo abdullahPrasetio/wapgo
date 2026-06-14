@@ -15,7 +15,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"[[.Module]]/config"
-	_ "[[.Module]]/docs" // swagger generated docs
 	"[[.Module]]/internal/delivery/http/handler"
 	mw "[[.Module]]/internal/delivery/http/middleware"
 	"[[.Module]]/internal/delivery/http/route"
@@ -58,7 +57,7 @@ func main() {
 		Str("observability", cfg.Observability.Provider).Msg("starting service")
 
 	// Observability provider: "otel", "elastic_apm", or "none"
-	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version)
+	obsProvider, err := observability.New(context.Background(), &cfg.Observability, cfg.App.Name, version, cfg.App.Env)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to setup observability provider")
 	}
@@ -200,6 +199,24 @@ func newRedisClient(cfg *config.RedisConfig) *redis.Client {
 	}
 	if cfg.DB > 0 {
 		opts.DB = cfg.DB
+	}
+	if cfg.PoolSize > 0 {
+		opts.PoolSize = cfg.PoolSize
+	}
+	if cfg.MinIdleConns > 0 {
+		opts.MinIdleConns = cfg.MinIdleConns
+	}
+	if cfg.MaxRetries > 0 {
+		opts.MaxRetries = cfg.MaxRetries
+	}
+	if d, err := time.ParseDuration(cfg.DialTimeout); err == nil {
+		opts.DialTimeout = d
+	}
+	if d, err := time.ParseDuration(cfg.ReadTimeout); err == nil {
+		opts.ReadTimeout = d
+	}
+	if d, err := time.ParseDuration(cfg.WriteTimeout); err == nil {
+		opts.WriteTimeout = d
 	}
 	return redis.NewClient(opts)
 }
