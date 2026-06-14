@@ -23,6 +23,8 @@
    - [messaging — RabbitMQ](#76-messaging--rabbitmq)
    - [observability](#77-observability)
    - [Worker binary](#78-worker-binary)
+   - [notification — SMTP (email)](#79-notification--smtp-email)
+   - [notification — Firebase FCM](#710-notification--firebase-fcm-push-notification)
 8. [Observability: OTel vs Elastic APM](#8-observability-otel-vs-elastic-apm)
 9. [Health Check](#9-health-check)
 10. [Makefile Commands](#10-makefile-commands)
@@ -306,6 +308,33 @@ Semua konfigurasi dibaca dari ENV (atau `.env`). Prioritas: `ENV → config.yaml
 | `RABBITMQ_DSN` | `amqp://guest:guest@localhost:5672/` | URL koneksi AMQP |
 | `RABBITMQ_EXCHANGE` | `{app-name}-exchange` | Nama topic exchange |
 
+### SMTP (add-on opsional)
+
+Hanya diperlukan jika `pkg/notification/email` digunakan. Biarkan kosong jika tidak.
+
+| ENV | Default | Keterangan |
+|---|---|---|
+| `SMTP_HOST` | *(kosong)* | Hostname server SMTP |
+| `SMTP_PORT` | `587` | `587`=STARTTLS, `465`=implicit TLS, `25`=plain |
+| `SMTP_USERNAME` | *(kosong)* | Username autentikasi |
+| `SMTP_PASSWORD` | *(kosong)* | Password autentikasi |
+| `SMTP_FROM` | *(kosong)* | Alamat pengirim (`From:` header) |
+| `SMTP_TIMEOUT` | `10s` | Timeout koneksi TCP + transaksi SMTP |
+
+### Firebase FCM (add-on opsional)
+
+Hanya diperlukan jika `pkg/notification/firebase` digunakan. Biarkan kosong jika tidak.
+
+| ENV | Default | Keterangan |
+|---|---|---|
+| `FIREBASE_CREDENTIALS_JSON` | *(kosong)* | Konten JSON service account key (Firebase Console → Project Settings → Service Accounts → Generate new private key) |
+
+### Health Check
+
+| ENV | Default | Keterangan |
+|---|---|---|
+| `HEALTH_PROBE_TIMEOUT` | `2s` | Timeout per probe dependensi (DB, Redis, dll) |
+
 ### Observability
 
 | ENV | Default | Keterangan |
@@ -399,28 +428,34 @@ secara otomatis. Gate `LOG_HTTP_BODIES=true` diperlukan agar body request/respon
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/auth"
 
-// Sign token
-token, err := auth.Sign(auth.Claims{
-    UserID: "user-123",
-    Role:   "admin",
-}, cfg.JWT)
+// Sign access token (token_type:"access", JTI otomatis, expiry dari cfg.JWT.Expiry)
+token, err := auth.Sign("user-123", []string{"admin"}, &cfg.JWT)
 
-// Verify token
-claims, err := auth.Verify(token, cfg.JWT)
+// Sign refresh token (token_type:"refresh", expiry biasanya lebih panjang)
+refresh, err := auth.SignRefresh("user-123", &cfg.JWT)
+
+// Verify token → kembalikan *Claims
+claims, err := auth.Verify(token, &cfg.JWT)
+fmt.Println(claims.Subject, claims.Roles, claims.TokenType, claims.ID) // JTI ada di ID
 
 // Middleware di Fiber route
-app.Use(auth.Middleware(cfg.JWT))
-app.Use(auth.RequireRole("admin"))
+app.Use(auth.Middleware(&cfg.JWT))          // tolak token bukan access (refresh ditolak)
+app.Use(auth.RequireRole("admin"))          // RBAC
 
 // Ambil claims dari handler
 func handler(c *fiber.Ctx) error {
     claims := auth.GetClaims(c)
-    fmt.Println(claims.UserID, claims.Role)
+    fmt.Println(claims.Subject, claims.Roles)
     return nil
 }
 ```
 
-Hardening: algoritma di-pin ke HS256, validasi `exp`/`iat`/`iss`/`aud`, `alg:none` ditolak, secret ≥ 32 byte.
+**Hardening yang aktif:**
+- Algoritma di-pin ke HS256 — `alg:none` dan algoritma lain ditolak
+- Validasi `exp` / `iat` / `iss` / `aud` ketat
+- Secret ≥ 32 byte (gagal saat Sign/Verify jika kurang)
+- **JTI (JWT ID):** setiap token dapat ID random 16-byte hex — siap untuk token blacklist
+- **TokenType guard:** Middleware menolak token dengan `token_type != "access"` — refresh token tidak bisa dipakai di endpoint API
 
 ### 7.4 httpclient
 
@@ -539,8 +574,8 @@ rabbitmq.HealthCheck(cfg.RabbitMQ.DSN)  // return func(ctx) string
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/observability"
 
-// Setup provider (di main.go)
-obsProvider, err := observability.New(ctx, &cfg.Observability, cfg.App.Name, version)
+// Setup provider (di main.go) — environment diambil dari cfg.App.Env ("development"/"production"/dll)
+obsProvider, err := observability.New(ctx, &cfg.Observability, cfg.App.Name, version, cfg.App.Env)
 
 // Instrument dependencies
 obsProvider.InstrumentGORM(db)
@@ -630,6 +665,133 @@ run-worker-order:
 
 build-worker-order:
     go build -o bin/worker-order ./cmd/worker-order
+```
+
+---
+
+### 7.9 notification — SMTP (email)
+
+> Add-on opsional. Import hanya jika service perlu kirim email.
+
+```go
+import (
+    "github.com/abdullahPrasetio/wapgo/pkg/notification/email"
+)
+
+smtpTimeout, _ := time.ParseDuration(cfg.Notification.SMTP.Timeout) // "10s" default
+
+mailer := email.NewSMTPMailer(email.Config{
+    Host:     cfg.Notification.SMTP.Host,
+    Port:     cfg.Notification.SMTP.Port,    // 587 default
+    Username: cfg.Notification.SMTP.Username,
+    Password: cfg.Notification.SMTP.Password,
+    From:     cfg.Notification.SMTP.From,
+    Timeout:  smtpTimeout,                   // zero → NewSMTPMailer defaults to 10s
+}, logger)
+
+err := mailer.Send(ctx, email.Message{
+    To:      []string{"user@example.com"},
+    Subject: "Order Confirmed",
+    Body:    "<h1>Pesanan #123 dikonfirmasi</h1>",
+    IsHTML:  true,
+})
+```
+
+**Integrasi otomatis:**
+- Setiap `Send` mencatat span OTel `notification.email.send`
+- Entry `ThirdParty{name:"smtp"}` otomatis muncul di `thirdparty.log` dan embed di `api.log` / `consumer.log`
+- Koneksi TCP baru per-Send — stateless, aman concurrent
+
+**Health check:**
+
+```go
+health.Register("smtp", email.HealthCheck(cfg.Notification.SMTP.Host, cfg.Notification.SMTP.Port))
+```
+
+---
+
+### 7.10 notification — Firebase FCM (push notification)
+
+> Add-on opsional. Import hanya jika service perlu kirim push notification.
+> Tidak membutuhkan Firebase Admin SDK — auth dilakukan via FCM v1 HTTP API
+> dengan service account JWT (RS256), menggunakan `golang-jwt/jwt/v5` yang sudah ada di go.mod.
+
+```go
+import (
+    "github.com/abdullahPrasetio/wapgo/pkg/notification/firebase"
+)
+
+pusher, err := firebase.NewFCMClient(cfg.Notification.Firebase.CredentialsJSON, logger)
+if err != nil {
+    log.Fatal().Err(err).Msg("firebase init failed")
+}
+
+// Kirim ke satu device
+err = pusher.Send(ctx, firebase.Message{
+    Token: "device-registration-token",
+    Title: "Pesanan Dikirim",
+    Body:  "Paket Anda sedang dalam perjalanan",
+    Data:  map[string]string{"order_id": "123", "type": "order_shipped"},
+})
+
+// Kirim ke topic
+err = pusher.Send(ctx, firebase.Message{
+    Topic: "promo",
+    Title: "Flash Sale!",
+    Body:  "Diskon 50% hanya 2 jam",
+})
+```
+
+**Integrasi otomatis:**
+- Access token di-cache ~1 jam — tidak re-fetch setiap request
+- Setiap `Send` mencatat span OTel `notification.firebase.send`
+- Entry `ThirdParty{name:"firebase-fcm"}` otomatis muncul di `thirdparty.log` dan embed di `api.log`
+- Device token di-mask di log (`abcd***wxyz`) — tidak bocor ke log file
+
+**Health check:**
+
+```go
+health.Register("firebase", firebase.HealthCheck(cfg.Notification.Firebase.CredentialsJSON))
+```
+
+**Cara dapat `FIREBASE_CREDENTIALS_JSON`:**
+1. Firebase Console → Project Settings → Service Accounts
+2. Klik "Generate new private key" → download file JSON
+3. Set ENV: `FIREBASE_CREDENTIALS_JSON=$(cat path/to/key.json)` atau paste konten JSON ke Kubernetes Secret
+
+**Contoh struktur JSON service account key:**
+
+```json
+{
+  "type": "service_account",
+  "project_id": "my-app-12345",
+  "private_key_id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQE...(base64)...\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-xxxxx@my-app-12345.iam.gserviceaccount.com",
+  "client_id": "123456789012345678901",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk%40my-app-12345.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+```
+
+Field yang **wajib** ada: `project_id`, `private_key`, `client_email`, `token_uri`.
+Field lain diabaikan oleh `pkg/notification/firebase`.
+
+**Set ke ENV (3 cara):**
+
+```bash
+# Cara 1 — export dari file (lokal/CI)
+export FIREBASE_CREDENTIALS_JSON=$(cat serviceAccountKey.json)
+
+# Cara 2 — inline di .env (satu baris, \n harus di-escape manual)
+# FIREBASE_CREDENTIALS_JSON={"type":"service_account","project_id":"my-app-12345",...}
+
+# Cara 3 — Kubernetes Secret (production)
+kubectl create secret generic firebase-creds \
+  --from-file=FIREBASE_CREDENTIALS_JSON=serviceAccountKey.json
 ```
 
 ---
@@ -738,7 +900,7 @@ Semua aktif tanpa konfigurasi tambahan:
 | **Recover** | Panic dicatch tanpa bocor stack trace ke response |
 | **TLS verify** | ON by default di httpclient (`InsecureSkipVerify=false`, min TLS 1.2) |
 | **SSRF guard** | Allowlist host tujuan, tolak redirect ke internal/loopback/link-local |
-| **JWT hardening** | Algo di-pin HS256, validasi `exp`/`iat`/`iss`/`aud`, `alg:none` ditolak |
+| **JWT hardening** | Algo di-pin HS256, validasi `exp`/`iat`/`iss`/`aud`, `alg:none` ditolak, JTI per-token, `token_type` guard (refresh ditolak di endpoint API) |
 | **SQL injection** | GORM parameterized query — tidak ada raw string concat |
 | **Input validation** | `go-playground/validator` di semua DTO |
 | **Secret redaction** | Field sensitif tidak pernah muncul di log |
@@ -763,6 +925,7 @@ Semua aktif tanpa konfigurasi tambahan:
 | **v0.11** | 4 log sinks, `pkg/journal` (dual-write), `AccessLog` middleware, consumer journal, Filebeat example | ✅ |
 | **v1.1** | Swagger UI, welcome page, `make:test` (usecase + handler layer), `wapgo upgrade` | ✅ |
 | **v1.2** | **Connection management**: RabbitMQ shared `Connection`, blocking `Subscribe` + auto-reconnect; Redis pool config (6 ENV vars); Kafka backoff + session config; `make:worker` | ✅ |
+| **v1.3** | **Auth hardening + Notification add-ons**: JTI per-token, `SignRefresh()`, `token_type` guard (refresh ditolak di API); `pkg/notification/email` (SMTP OTel); `pkg/notification/firebase` (FCM v1 OTel, token cache); `wapgo add email/firebase`; skeleton sync penuh (config, kafka OTel, observability env) | ✅ |
 
 Coverage semua paket > 80%. `go build ./...` dan `go vet ./...` bersih.
 
@@ -840,4 +1003,21 @@ LOG_ROTATION=size         # size | daily
 LOG_MAX_AGE_DAYS=30
 LOG_HTTP_BODIES=false     # true = catat body request/response di api.log
 LOG_BODY_MAX_BYTES=16384
+
+# Health check
+HEALTH_PROBE_TIMEOUT=2s      # timeout per probe (DB ping, Redis ping, dll)
+
+# ── Notification add-ons (opsional — hapus atau biarkan kosong jika tidak dipakai) ──
+
+# SMTP (pkg/notification/email)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587              # 587=STARTTLS, 465=implicit TLS, 25=plain
+SMTP_USERNAME=noreply@example.com
+SMTP_PASSWORD=
+SMTP_FROM=noreply@example.com
+SMTP_TIMEOUT=10s
+
+# Firebase FCM (pkg/notification/firebase)
+# Isi dengan konten JSON dari Firebase Console → Project Settings → Service Accounts
+FIREBASE_CREDENTIALS_JSON=
 ```

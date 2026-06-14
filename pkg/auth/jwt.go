@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -20,8 +22,21 @@ type Config struct {
 // ErrWeakSecret is returned when the signing secret is shorter than 32 bytes.
 var ErrWeakSecret = errors.New("jwt secret must be at least 32 bytes")
 
-// Sign creates and returns a new HS256-signed JWT for the given subject and roles.
+// Sign creates a new HS256-signed access token for the given subject and roles.
+// The returned token carries TokenType "access" and a random JTI (for blacklisting).
 func Sign(subject string, roles []string, cfg *Config) (string, error) {
+	return signWithType(subject, roles, "access", cfg)
+}
+
+// SignRefresh creates a refresh token for subject using cfg.
+// Refresh tokens are explicitly typed "refresh" and are rejected by Middleware —
+// they must only be presented to the /refresh endpoint, which verifies them directly.
+func SignRefresh(subject string, cfg *Config) (string, error) {
+	return signWithType(subject, nil, "refresh", cfg)
+}
+
+// signWithType is the internal signing helper shared by Sign and SignRefresh.
+func signWithType(subject string, roles []string, tokenType string, cfg *Config) (string, error) {
 	if len(cfg.Secret) < 32 {
 		return "", ErrWeakSecret
 	}
@@ -32,6 +47,7 @@ func Sign(subject string, roles []string, cfg *Config) (string, error) {
 	now := time.Now()
 	c := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        newJTI(),
 			Subject:   subject,
 			Issuer:    cfg.Issuer,
 			Audience:  jwt.ClaimStrings{cfg.Audience},
@@ -39,7 +55,8 @@ func Sign(subject string, roles []string, cfg *Config) (string, error) {
 			NotBefore: jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
 		},
-		Roles: roles,
+		Roles:     roles,
+		TokenType: tokenType,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, c)
 	signed, err := token.SignedString([]byte(cfg.Secret))
@@ -47,6 +64,14 @@ func Sign(subject string, roles []string, cfg *Config) (string, error) {
 		return "", fmt.Errorf("signing jwt: %w", err)
 	}
 	return signed, nil
+}
+
+// newJTI generates a 128-bit random hex string suitable for use as a JWT ID.
+// Used for token blacklisting (logout, rotation).
+func newJTI() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // Verify parses and validates tokenStr.

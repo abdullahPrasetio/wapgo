@@ -45,9 +45,13 @@ func newOTelProvider(ctx context.Context, cfg otelConfig) (Provider, error) {
 	}
 
 	res, err := resource.New(ctx,
+		resource.WithTelemetrySDK(),
+		resource.WithFromEnv(),
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.ServiceName),
 			semconv.ServiceVersion(cfg.ServiceVersion),
+			semconv.TelemetrySDKLanguageGo,
+			semconv.DeploymentEnvironment(cfg.Environment),
 		),
 	)
 	if err != nil {
@@ -57,8 +61,7 @@ func newOTelProvider(ctx context.Context, cfg otelConfig) (Provider, error) {
 	var exporter sdktrace.SpanExporter
 	if cfg.OTLPEndpoint != "" {
 		exporter, err = otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpoint(cfg.OTLPEndpoint),
-			otlptracehttp.WithInsecure(),
+			otlptracehttp.WithEndpointURL(cfg.OTLPEndpoint),
 		)
 	} else {
 		exporter, err = stdouttrace.New(stdouttrace.WithPrettyPrint())
@@ -135,6 +138,7 @@ func (p *otelProvider) Shutdown(ctx context.Context) error {
 type otelConfig struct {
 	ServiceName    string
 	ServiceVersion string
+	Environment    string
 	OTLPEndpoint   string
 	Enabled        bool
 }

@@ -21,6 +21,12 @@ func Middleware(cfg *Config) fiber.Handler {
 		if err != nil {
 			return fiber.ErrUnauthorized
 		}
+		// Reject tokens explicitly typed as non-access (e.g. refresh tokens).
+		// Tokens without token_type (issued before this field was introduced) still pass
+		// to preserve backward compatibility.
+		if claims.TokenType != "" && claims.TokenType != "access" {
+			return fiber.ErrUnauthorized
+		}
 		c.Locals(claimsKey, claims)
 		return c.Next()
 	}

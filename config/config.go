@@ -19,6 +19,31 @@ type Config struct {
 	JWT           JWTConfig           `mapstructure:"jwt"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
 	Health        HealthConfig        `mapstructure:"health"`
+	Notification  NotificationConfig  `mapstructure:"notification"`
+}
+
+// NotificationConfig groups optional notification add-on settings.
+// Both sub-sections are zero-valued when the add-on is not used.
+type NotificationConfig struct {
+	SMTP     SMTPConfig     `mapstructure:"smtp"`
+	Firebase FirebaseConfig `mapstructure:"firebase"`
+}
+
+// SMTPConfig holds parameters for the pkg/notification/email add-on.
+type SMTPConfig struct {
+	Host     string `mapstructure:"host"`     // SMTP_HOST
+	Port     int    `mapstructure:"port"`     // SMTP_PORT  (default 587)
+	Username string `mapstructure:"username"` // SMTP_USERNAME
+	Password string `mapstructure:"password"` // SMTP_PASSWORD
+	From     string `mapstructure:"from"`     // SMTP_FROM
+	Timeout  string `mapstructure:"timeout"`  // SMTP_TIMEOUT  Go duration (default "10s")
+}
+
+// FirebaseConfig holds parameters for the pkg/notification/firebase add-on.
+type FirebaseConfig struct {
+	// CredentialsJSON is the full JSON content of the Firebase service account key.
+	// Set via FIREBASE_CREDENTIALS_JSON (preferred in Kubernetes Secrets).
+	CredentialsJSON string `mapstructure:"credentials_json"`
 }
 
 // HealthConfig controls health check probe behaviour.
@@ -166,7 +191,14 @@ func Load() (*Config, error) {
 		"observability.provider":        "OBSERVABILITY_PROVIDER",
 		"observability.tracing_enabled": "OTEL_TRACING_ENABLED",
 		"observability.otlp_endpoint":   "OTEL_EXPORTER_OTLP_ENDPOINT",
-		"health.probe_timeout":          "HEALTH_PROBE_TIMEOUT",
+		"health.probe_timeout":                      "HEALTH_PROBE_TIMEOUT",
+		"notification.smtp.host":                    "SMTP_HOST",
+		"notification.smtp.port":                    "SMTP_PORT",
+		"notification.smtp.username":                "SMTP_USERNAME",
+		"notification.smtp.password":                "SMTP_PASSWORD",
+		"notification.smtp.from":                    "SMTP_FROM",
+		"notification.smtp.timeout":                 "SMTP_TIMEOUT",
+		"notification.firebase.credentials_json":    "FIREBASE_CREDENTIALS_JSON",
 	}
 	for key, env := range bindings {
 		if err := v.BindEnv(key, env); err != nil {
@@ -209,6 +241,8 @@ func Load() (*Config, error) {
 	v.SetDefault("observability.provider", "elastic_apm")
 	v.SetDefault("observability.tracing_enabled", false)
 	v.SetDefault("health.probe_timeout", "2s")
+	v.SetDefault("notification.smtp.port", 587)
+	v.SetDefault("notification.smtp.timeout", "10s")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
