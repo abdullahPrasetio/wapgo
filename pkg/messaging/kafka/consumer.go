@@ -32,23 +32,45 @@ type Consumer struct {
 	log zerolog.Logger
 }
 
+// ConsumerConfig holds connection and tuning parameters for NewConsumer.
+// Zero-valued duration fields fall back to sensible defaults (heartbeat=3s, session=30s, rebalance=30s).
+type ConsumerConfig struct {
+	Brokers           string
+	GroupID           string
+	HeartbeatInterval time.Duration
+	SessionTimeout    time.Duration
+	RebalanceTimeout  time.Duration
+}
+
 // NewConsumer creates a Consumer for one topic within a consumer group.
-// brokers is a comma-separated list of host:port addresses.
-func NewConsumer(brokers, groupID, topic string, log zerolog.Logger) *Consumer {
-	addrs := strings.Split(brokers, ",")
+func NewConsumer(cfg ConsumerConfig, topic string, log zerolog.Logger) *Consumer {
+	hi := cfg.HeartbeatInterval
+	if hi == 0 {
+		hi = 3 * time.Second
+	}
+	st := cfg.SessionTimeout
+	if st == 0 {
+		st = 30 * time.Second
+	}
+	rt := cfg.RebalanceTimeout
+	if rt == 0 {
+		rt = 30 * time.Second
+	}
+
+	addrs := strings.Split(cfg.Brokers, ",")
 	r := kafkago.NewReader(kafkago.ReaderConfig{
-		Brokers:          addrs,
-		GroupID:          groupID,
-		Topic:            topic,
-		MinBytes:         10e3,
-		MaxBytes:         10e6,
-		MaxWait:          500 * time.Millisecond,
-		StartOffset:      kafkago.LastOffset,
-		CommitInterval:   0,                // manual commit after handler succeeds
-		HeartbeatInterval: 3 * time.Second,
-		SessionTimeout:   30 * time.Second,
-		RebalanceTimeout: 30 * time.Second,
-		ErrorLogger:      kafkago.LoggerFunc(func(msg string, args ...interface{}) {
+		Brokers:           addrs,
+		GroupID:           cfg.GroupID,
+		Topic:             topic,
+		MinBytes:          10e3,
+		MaxBytes:          10e6,
+		MaxWait:           500 * time.Millisecond,
+		StartOffset:       kafkago.LastOffset,
+		CommitInterval:    0, // manual commit after handler succeeds
+		HeartbeatInterval: hi,
+		SessionTimeout:    st,
+		RebalanceTimeout:  rt,
+		ErrorLogger: kafkago.LoggerFunc(func(msg string, args ...interface{}) {
 			log.Error().Msgf("kafka reader: "+msg, args...)
 		}),
 	})

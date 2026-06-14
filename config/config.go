@@ -107,8 +107,11 @@ type RedisConfig struct {
 }
 
 type KafkaConfig struct {
-	Brokers string `mapstructure:"brokers"`
-	GroupID string `mapstructure:"group_id"`
+	Brokers           string `mapstructure:"brokers"`
+	GroupID           string `mapstructure:"group_id"`
+	HeartbeatInterval string `mapstructure:"heartbeat_interval"` // KAFKA_HEARTBEAT_INTERVAL default "3s"
+	SessionTimeout    string `mapstructure:"session_timeout"`    // KAFKA_SESSION_TIMEOUT    default "30s"
+	RebalanceTimeout  string `mapstructure:"rebalance_timeout"`  // KAFKA_REBALANCE_TIMEOUT  default "30s"
 }
 
 type RabbitMQConfig struct {
@@ -170,8 +173,11 @@ func Load() (*Config, error) {
 		"redis.read_timeout":  "REDIS_READ_TIMEOUT",
 		"redis.write_timeout": "REDIS_WRITE_TIMEOUT",
 		"redis.max_retries":   "REDIS_MAX_RETRIES",
-		"kafka.brokers":                 "KAFKA_BROKERS",
-		"kafka.group_id":                "KAFKA_GROUP_ID",
+		"kafka.brokers":             "KAFKA_BROKERS",
+		"kafka.group_id":            "KAFKA_GROUP_ID",
+		"kafka.heartbeat_interval": "KAFKA_HEARTBEAT_INTERVAL",
+		"kafka.session_timeout":    "KAFKA_SESSION_TIMEOUT",
+		"kafka.rebalance_timeout":  "KAFKA_REBALANCE_TIMEOUT",
 		"rabbitmq.dsn":                  "RABBITMQ_DSN",
 		"rabbitmq.exchange":             "RABBITMQ_EXCHANGE",
 		"log.level":                     "LOG_LEVEL",
@@ -243,6 +249,9 @@ func Load() (*Config, error) {
 	v.SetDefault("health.probe_timeout", "2s")
 	v.SetDefault("notification.smtp.port", 587)
 	v.SetDefault("notification.smtp.timeout", "10s")
+	v.SetDefault("kafka.heartbeat_interval", "3s")
+	v.SetDefault("kafka.session_timeout", "30s")
+	v.SetDefault("kafka.rebalance_timeout", "30s")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

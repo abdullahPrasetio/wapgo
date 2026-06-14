@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.7.0] — 2026-06-15
+
+### Added
+- **`wapgo add google-auth`** — Google OAuth2 login/register add-on. Scaffolds three subtrees:
+  `pkg/auth/google` (Provider, AuthURL, Exchange, UserInfo), handler (`GoogleAuthHandler` with
+  Login + Callback), and route (`RegisterGoogleAuthRoutes`). Requires `golang.org/x/oauth2`.
+- **`pkg/auth/google`** — framework-level OAuth2 helper: `New(Config)`, `AuthURL(state)`,
+  `Exchange(ctx, code)` fetches Google userinfo after token exchange.
+- **`FindByEmail`** added to skeleton `UserRepository` interface and GORM implementation.
+  Returns `gorm.ErrRecordNotFound` (not wrapped) for not-found so callers can sentinel-check.
+- **Kafka `ConsumerConfig` struct** — `NewConsumer` signature changed from
+  `(brokers, groupID, topic string, log)` to `(cfg ConsumerConfig, topic string, log)`.
+  New fields: `HeartbeatInterval`, `SessionTimeout`, `RebalanceTimeout time.Duration`
+  (zero value falls back to the previous hardcoded defaults: 3s / 30s / 30s).
+  Three new ENV vars: `KAFKA_HEARTBEAT_INTERVAL`, `KAFKA_SESSION_TIMEOUT`,
+  `KAFKA_REBALANCE_TIMEOUT` — with defaults set in both `config.go` and skeleton
+  `config.go.tmpl`. `worker_main.go.tmpl` updated to `ConsumerConfig{}` struct literal.
+
+### Fixed
+- **`upsertUser` error swallow** — `GoogleAuthHandler.upsertUser` now distinguishes
+  `gorm.ErrRecordNotFound` from other DB errors via `errors.Is`. A DB timeout or network
+  error no longer silently falls through to `Create`, preventing ghost-account creation
+  under partial outage.
+- **`FindByEmail`/`ExistsByEmail` case-sensitivity** — skeleton DB implementation now uses
+  `LOWER(email) = LOWER(?)` instead of exact-match, preventing duplicate accounts when an
+  existing user registered with mixed-case email (e.g. `User@Gmail.com`) logs in via Google
+  (which always returns lowercase email).
+- **Google-auth JWT missing roles** — `auth.Sign` now passes `[]string{"user"}` (was `nil`).
+  Users who logged in via Google were rejected by any role-protected route even though
+  their token was valid.
+- **`io.LimitReader` missing in `Exchange()`** — `Provider.Exchange` now wraps
+  `resp.Body` with `io.LimitReader(resp.Body, 4*1024)` before decoding, consistent with
+  the pattern already used in `pkg/notification/firebase`.
+- **`worker_main.go.tmpl` missing `"time"` import** — when `.Kafka = true`, the generated
+  worker used `time.ParseDuration` without importing `"time"`. Fixed by adding a conditional
+  `"time"` import guarded by `[[- if .Kafka ]]`.
+- **Skeleton `config.go.tmpl` missing Kafka timeout fields** — framework `config.go` was
+  updated (3 fields + ENV bindings + defaults) but the skeleton template was not, causing
+  `wapgo new` to generate a config that didn't expose the new Kafka ENV vars.
+
+### Changed (Breaking)
+- **`kafka.NewConsumer` signature** — callers must switch to `ConsumerConfig{}` struct literal.
+  Zero-valued duration fields fall back to the previous defaults so no behavioural change
+  if the new fields are left at zero.
+
+---
+
 ## [Unreleased]
 
 ### Added

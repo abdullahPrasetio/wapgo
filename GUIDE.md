@@ -25,6 +25,7 @@
    - [Worker binary](#78-worker-binary)
    - [notification — SMTP (email)](#79-notification--smtp-email)
    - [notification — Firebase FCM](#710-notification--firebase-fcm-push-notification)
+   - [auth/google (Google OAuth2)](#711-authgoogle-google-oauth2)
 8. [Observability: OTel vs Elastic APM](#8-observability-otel-vs-elastic-apm)
 9. [Health Check](#9-health-check)
 10. [Makefile Commands](#10-makefile-commands)
@@ -300,6 +301,9 @@ Semua konfigurasi dibaca dari ENV (atau `.env`). Prioritas: `ENV → config.yaml
 |---|---|---|
 | `KAFKA_BROKERS` | `localhost:9092` | Comma-separated |
 | `KAFKA_GROUP_ID` | `wapgo-group` | Consumer group |
+| `KAFKA_HEARTBEAT_INTERVAL` | `3s` | Interval heartbeat ke broker; naikkan ke `5s`–`10s` di jaringan lambat |
+| `KAFKA_SESSION_TIMEOUT` | `30s` | Batas waktu sebelum broker anggap consumer mati dan trigger rebalance |
+| `KAFKA_REBALANCE_TIMEOUT` | `30s` | Waktu maksimal rebalance grup; naikkan untuk cluster besar |
 
 ### RabbitMQ
 
@@ -328,6 +332,22 @@ Hanya diperlukan jika `pkg/notification/firebase` digunakan. Biarkan kosong jika
 | ENV | Default | Keterangan |
 |---|---|---|
 | `FIREBASE_CREDENTIALS_JSON` | *(kosong)* | Konten JSON service account key (Firebase Console → Project Settings → Service Accounts → Generate new private key) |
+
+### Google OAuth2 (add-on opsional — `wapgo add google-auth`)
+
+Hanya diperlukan jika fitur Google login/register diaktifkan. Wajib diisi semua tiga ENV di bawah jika fitur ini dipakai.
+
+| ENV | Default | Keterangan |
+|---|---|---|
+| `GOOGLE_CLIENT_ID` | *(kosong, wajib)* | OAuth2 Client ID — dari Google Cloud Console → APIs & Services → Credentials |
+| `GOOGLE_CLIENT_SECRET` | *(kosong, wajib)* | OAuth2 Client Secret — dari halaman yang sama |
+| `GOOGLE_REDIRECT_URL` | *(kosong, wajib)* | Callback URL yang **sama persis** dengan yang didaftarkan di Google Console, mis. `http://localhost:8080/auth/google/callback` |
+
+> **Cara dapat Client ID & Secret:**
+> 1. Buka [console.cloud.google.com](https://console.cloud.google.com) → APIs & Services → Credentials
+> 2. Create Credentials → OAuth 2.0 Client IDs → Application type: **Web application**
+> 3. Tambah Authorized redirect URIs: URL callback service kamu
+> 4. Copy Client ID dan Client Secret
 
 ### Health Check
 
@@ -796,6 +816,91 @@ kubectl create secret generic firebase-creds \
 
 ---
 
+### 7.11 auth/google (Google OAuth2)
+
+> Add-on opsional. Aktifkan dengan `wapgo add google-auth`. Membutuhkan Redis (state CSRF) dan user repository sudah tersedia di project.
+
+```go
+import (
+    googleauth "github.com/abdullahPrasetio/wapgo/pkg/auth/google"
+)
+
+// Inisialisasi provider (di main.go)
+provider := googleauth.New(googleauth.Config{
+    ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+    ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+    RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+})
+
+// Buat handler dan daftarkan route
+googleHandler := handler.NewGoogleAuthHandler(provider, userRepo, &jwtCfg, redisClient)
+route.RegisterGoogleAuthRoutes(api, googleHandler)
+```
+
+**Endpoint yang dihasilkan:**
+
+| Method | Path | Fungsi |
+|---|---|---|
+| `GET` | `/auth/google` | Redirect ke Google consent page |
+| `GET` | `/auth/google/callback` | Terima code dari Google, upsert user, return JWT |
+
+**Alur lengkap:**
+
+```
+Browser
+  → GET /auth/google
+    ← 307 redirect ke accounts.google.com/o/oauth2/...?state=<random>
+
+Google consent page
+  → user klik "Allow"
+  → GET /auth/google/callback?code=xxx&state=yyy
+
+Server
+  → verify state di Redis (CSRF, one-time, TTL 5m)
+  → exchange code dengan Google → UserInfo {id, email, name, picture}
+  → FindByEmail → user ada? return user : create user baru (password kosong)
+  → auth.Sign(user.ID, roles, jwtCfg) → JWT
+  ← 200 { "access_token": "...", "user": { id, name, email } }
+```
+
+**Security bawaan:**
+- State CSRF 128-bit random, simpan di Redis dengan TTL 5 menit — one-time (di-delete saat verify)
+- `GetDel` Redis bersifat atomik — tidak ada race condition verifikasi ulang
+- User yang login via Google tidak bisa login dengan email+password (password field kosong, bcrypt tidak cocok)
+- OAuth2 scope minimal: `openid email profile`
+
+**Contoh response sukses:**
+
+```json
+{
+  "status": true,
+  "message": "google login successful",
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Budi Santoso",
+      "email": "budi@gmail.com"
+    }
+  }
+}
+```
+
+**Instalasi ke project yang sudah ada:**
+
+```bash
+wapgo add google-auth
+go get golang.org/x/oauth2
+```
+
+Jika project sudah dibuat sebelum versi ini, tambahkan `FindByEmail` manual ke:
+- `internal/domain/repository/user_repository.go` — interface
+- `internal/repository/db/user_repository.go` — implementasi GORM
+
+(Project baru dari `wapgo new` sudah include keduanya otomatis.)
+
+---
+
 ## 8. Observability: OTel vs Elastic APM
 
 Set satu ENV untuk memilih:
@@ -926,6 +1031,8 @@ Semua aktif tanpa konfigurasi tambahan:
 | **v1.1** | Swagger UI, welcome page, `make:test` (usecase + handler layer), `wapgo upgrade` | ✅ |
 | **v1.2** | **Connection management**: RabbitMQ shared `Connection`, blocking `Subscribe` + auto-reconnect; Redis pool config (6 ENV vars); Kafka backoff + session config; `make:worker` | ✅ |
 | **v1.3** | **Auth hardening + Notification add-ons**: JTI per-token, `SignRefresh()`, `token_type` guard (refresh ditolak di API); `pkg/notification/email` (SMTP OTel); `pkg/notification/firebase` (FCM v1 OTel, token cache); `wapgo add email/firebase`; skeleton sync penuh (config, kafka OTel, observability env) | ✅ |
+| **v1.4** | **Google OAuth2**: `pkg/auth/google` (Provider, AuthURL, Exchange); `wapgo add google-auth` scaffold handler + route; Redis CSRF state (one-time, TTL 5m); auto-register user baru; `FindByEmail` di skeleton UserRepository | ✅ |
+| **v1.5** | **Security hardening + Kafka tuning**: `upsertUser` bedakan `ErrRecordNotFound` dari DB error; `FindByEmail`/`ExistsByEmail` case-insensitive (`LOWER`); Google-auth JWT default role `"user"`; `io.LimitReader` di `Exchange()`; Kafka `ConsumerConfig` struct + 3 ENV baru (`KAFKA_HEARTBEAT_INTERVAL`, `KAFKA_SESSION_TIMEOUT`, `KAFKA_REBALANCE_TIMEOUT`) | ✅ |
 
 Coverage semua paket > 80%. `go build ./...` dan `go vet ./...` bersih.
 
@@ -973,6 +1080,9 @@ JWT_AUDIENCE=my-client
 # Kafka (opsional — biarkan kosong jika tidak dipakai)
 KAFKA_BROKERS=localhost:9092
 KAFKA_GROUP_ID=my-service-group
+# KAFKA_HEARTBEAT_INTERVAL=3s   # default 3s
+# KAFKA_SESSION_TIMEOUT=30s     # default 30s
+# KAFKA_REBALANCE_TIMEOUT=30s   # default 30s
 
 # RabbitMQ (opsional — biarkan kosong jika tidak dipakai)
 RABBITMQ_DSN=amqp://guest:guest@localhost:5672/
@@ -1020,4 +1130,10 @@ SMTP_TIMEOUT=10s
 # Firebase FCM (pkg/notification/firebase)
 # Isi dengan konten JSON dari Firebase Console → Project Settings → Service Accounts
 FIREBASE_CREDENTIALS_JSON=
+
+# Google OAuth2 (pkg/auth/google — wapgo add google-auth)
+# Dari Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client IDs
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URL=http://localhost:8080/auth/google/callback
 ```

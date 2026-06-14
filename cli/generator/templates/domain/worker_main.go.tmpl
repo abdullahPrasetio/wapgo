@@ -5,6 +5,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+[[- if .Kafka ]]
+	"time"
+[[- end ]]
 
 	"github.com/rs/zerolog/log"
 [[- if .Kafka ]]
@@ -51,7 +54,16 @@ func main() {
 
 	// ── Kafka consumer ────────────────────────────────────────────────────────
 	if cfg.Kafka.Brokers != "" {
-		kConsumer := kafkamsg.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.GroupID, "events", log.Logger)
+		heartbeat, _ := time.ParseDuration(cfg.Kafka.HeartbeatInterval)
+		sessionTO, _ := time.ParseDuration(cfg.Kafka.SessionTimeout)
+		rebalanceTO, _ := time.ParseDuration(cfg.Kafka.RebalanceTimeout)
+		kConsumer := kafkamsg.NewConsumer(kafkamsg.ConsumerConfig{
+			Brokers:           cfg.Kafka.Brokers,
+			GroupID:           cfg.Kafka.GroupID,
+			HeartbeatInterval: heartbeat,
+			SessionTimeout:    sessionTO,
+			RebalanceTimeout:  rebalanceTO,
+		}, "events", log.Logger)
 		defer kConsumer.Close() //nolint:errcheck
 		go func() {
 			if err := kConsumer.Start(ctx, func(ctx context.Context, msg kafkamsg.Message) error {

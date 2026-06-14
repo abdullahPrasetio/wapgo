@@ -2,8 +2,8 @@ package email
 
 import (
 	"context"
-	"fmt"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -14,7 +14,7 @@ import (
 //
 //	health.Register("smtp", email.HealthCheck("smtp.example.com", 587))
 func HealthCheck(host string, port int) func(ctx context.Context) string {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	return func(ctx context.Context) string {
 		timeout := 5 * time.Second
 		if dl, ok := ctx.Deadline(); ok {

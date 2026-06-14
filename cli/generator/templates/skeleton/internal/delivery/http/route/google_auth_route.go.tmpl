@@ -1,0 +1,17 @@
+//go:build ignore
+
+package route
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/handler"
+)
+
+// RegisterGoogleAuthRoutes wires up the Google OAuth2 endpoints.
+// Wire in router.go: RegisterGoogleAuthRoutes(api, googleAuthHandler)
+func RegisterGoogleAuthRoutes(router fiber.Router, h *handler.GoogleAuthHandler) {
+	g := router.Group("/auth/google")
+	g.Get("/", h.Login)
+	g.Get("/callback", h.Callback)
+}

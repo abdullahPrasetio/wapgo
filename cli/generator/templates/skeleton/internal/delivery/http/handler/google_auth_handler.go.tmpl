@@ -1,0 +1,130 @@
+//go:build ignore
+
+package handler
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
+
+	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
+	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
+	"github.com/abdullahPrasetio/wapgo/pkg/auth"
+	googleauth "github.com/abdullahPrasetio/wapgo/pkg/auth/google"
+	"github.com/abdullahPrasetio/wapgo/pkg/response"
+)
+
+const (
+	googleStatePrefix = "google:oauth:state:"
+	googleStateTTL    = 5 * time.Minute
+)
+
+// GoogleAuthHandler handles the Google OAuth2 login flow.
+type GoogleAuthHandler struct {
+	provider *googleauth.Provider
+	userRepo domainrepo.UserRepository
+	jwtCfg   *auth.Config
+	redis    *redis.Client
+}
+
+func NewGoogleAuthHandler(
+	provider *googleauth.Provider,
+	userRepo domainrepo.UserRepository,
+	jwtCfg *auth.Config,
+	redis *redis.Client,
+) *GoogleAuthHandler {
+	return &GoogleAuthHandler{
+		provider: provider,
+		userRepo: userRepo,
+		jwtCfg:   jwtCfg,
+		redis:    redis,
+	}
+}
+
+// Login redirects the browser to Google's OAuth consent page.
+func (h *GoogleAuthHandler) Login(c *fiber.Ctx) error {
+	state, err := newGoogleState()
+	if err != nil {
+		return response.InternalError(c)
+	}
+	if err := h.redis.Set(c.UserContext(), googleStatePrefix+state, "1", googleStateTTL).Err(); err != nil {
+		return response.InternalError(c)
+	}
+	return c.Redirect(h.provider.AuthURL(state), fiber.StatusTemporaryRedirect)
+}
+
+// Callback handles the redirect from Google: verifies CSRF state, exchanges
+// the authorization code, upserts the user, and returns a signed JWT.
+func (h *GoogleAuthHandler) Callback(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	state := c.Query("state")
+	code := c.Query("code")
+
+	if state == "" || code == "" {
+		return response.BadRequest(c, "missing state or code")
+	}
+
+	// One-time CSRF check — GetDel is atomic (set to "1", delete on verify).
+	if err := h.redis.GetDel(ctx, googleStatePrefix+state).Err(); err != nil {
+		return response.Error(c, fiber.StatusUnauthorized, response.ErrUnauthorized, "invalid or expired oauth state")
+	}
+
+	info, err := h.provider.Exchange(ctx, code)
+	if err != nil {
+		return response.InternalError(c)
+	}
+
+	user, err := h.upsertUser(ctx, info)
+	if err != nil {
+		return response.InternalError(c)
+	}
+
+	token, err := auth.Sign(user.ID.String(), []string{"user"}, h.jwtCfg)
+	if err != nil {
+		return response.InternalError(c)
+	}
+
+	return response.Success(c, "google login successful", fiber.Map{
+		"access_token": token,
+		"user": fiber.Map{
+			"id":    user.ID,
+			"name":  user.Name,
+			"email": user.Email,
+		},
+	})
+}
+
+// upsertUser finds an existing user by email or creates a new one from Google info.
+// Google-authed users have an empty password; they cannot log in via email+password.
+func (h *GoogleAuthHandler) upsertUser(ctx context.Context, info *googleauth.UserInfo) (*entity.User, error) {
+	user, err := h.userRepo.FindByEmail(ctx, info.Email)
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("lookup google user: %w", err)
+	}
+	newUser := &entity.User{
+		Name:  info.Name,
+		Email: info.Email,
+	}
+	if err := h.userRepo.Create(ctx, newUser); err != nil {
+		return nil, fmt.Errorf("create google user: %w", err)
+	}
+	return newUser, nil
+}
+
+func newGoogleState() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}

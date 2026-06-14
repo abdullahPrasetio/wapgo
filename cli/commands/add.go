@@ -14,7 +14,7 @@ import (
 // feature describes an optional capability that can be added to an existing project.
 type feature struct {
 	name    string
-	subdir  string   // skeleton subtree to copy
+	subdirs []string // skeleton subtrees to copy (each relative to skeleton root)
 	summary string   // short description shown in help
 	steps   []string // manual wiring instructions printed after copying
 }
@@ -22,7 +22,7 @@ type feature struct {
 var features = map[string]feature{
 	"redis": {
 		name:    "redis",
-		subdir:  "internal/repository/redis",
+		subdirs: []string{"internal/repository/redis"},
 		summary: "Redis cache layer (RedisCacher implementing the domain Cacher)",
 		steps: []string{
 			"Wire it in cmd/api/main.go:",
@@ -34,7 +34,7 @@ var features = map[string]feature{
 	},
 	"kafka": {
 		name:    "kafka",
-		subdir:  "pkg/messaging/kafka",
+		subdirs: []string{"pkg/messaging/kafka"},
 		summary: "Kafka producer/consumer with health check",
 		steps: []string{
 			"Publish: producer := kafka.NewProducer(cfg.Kafka.Brokers, topic)",
@@ -45,7 +45,7 @@ var features = map[string]feature{
 	},
 	"rabbitmq": {
 		name:    "rabbitmq",
-		subdir:  "pkg/messaging/rabbitmq",
+		subdirs: []string{"pkg/messaging/rabbitmq"},
 		summary: "RabbitMQ publisher/consumer with health check",
 		steps: []string{
 			"Publish: pub := rabbitmq.NewPublisher(cfg.RabbitMQ.DSN, exchange)",
@@ -56,7 +56,7 @@ var features = map[string]feature{
 	},
 	"email": {
 		name:    "email",
-		subdir:  "pkg/notification/email",
+		subdirs: []string{"pkg/notification/email"},
 		summary: "SMTP mailer dengan OTel tracing dan journal integration",
 		steps: []string{
 			"Wire di cmd/api/main.go:",
@@ -67,13 +67,40 @@ var features = map[string]feature{
 	},
 	"firebase": {
 		name:    "firebase",
-		subdir:  "pkg/notification/firebase",
+		subdirs: []string{"pkg/notification/firebase"},
 		summary: "Firebase Cloud Messaging (FCM) push notification via FCM v1 HTTP API",
 		steps: []string{
 			"Wire di cmd/api/main.go:",
 			"    pusher, err := firebase.NewFCMClient(os.Getenv(\"FIREBASE_CREDENTIALS_JSON\"), logger)",
 			"Inject pusher ke usecase/handler yang butuh kirim push notification",
 			"Tambah ke .env: FIREBASE_CREDENTIALS_JSON (isi JSON service account, lihat .env.example)",
+		},
+	},
+	"google-auth": {
+		name: "google-auth",
+		subdirs: []string{
+			"pkg/auth/google",
+			"internal/delivery/http/handler",
+			"internal/delivery/http/route",
+		},
+		summary: "Google OAuth2 login/register — redirects to Google, exchanges code, upserts user, issues JWT",
+		steps: []string{
+			"1. go get golang.org/x/oauth2",
+			"2. Tambah ke .env:",
+			"       GOOGLE_CLIENT_ID=<from Google Console>",
+			"       GOOGLE_CLIENT_SECRET=<from Google Console>",
+			"       GOOGLE_REDIRECT_URL=http://localhost:8080/auth/google/callback",
+			"3. Wire di cmd/api/main.go:",
+			"       googleProvider := google.New(google.Config{",
+			"           ClientID:     os.Getenv(\"GOOGLE_CLIENT_ID\"),",
+			"           ClientSecret: os.Getenv(\"GOOGLE_CLIENT_SECRET\"),",
+			"           RedirectURL:  os.Getenv(\"GOOGLE_REDIRECT_URL\"),",
+			"       })",
+			"       googleHandler := handler.NewGoogleAuthHandler(googleProvider, userRepo, &jwtCfg, redisClient)",
+			"4. Daftarkan route di router.go:",
+			"       route.RegisterGoogleAuthRoutes(api, googleHandler)",
+			"5. Jika project sudah ada, tambah FindByEmail ke UserRepository interface + db implementation.",
+			"   (project baru dari wapgo new sudah include otomatis)",
 		},
 	},
 }
@@ -85,14 +112,15 @@ func newAddCmd() *cobra.Command {
 		Long: `Add an optional feature to the project in the current directory.
 
 Available features:
-  redis      Redis cache layer
-  kafka      Kafka producer/consumer
-  rabbitmq   RabbitMQ publisher/consumer
-  email      SMTP mailer
-  firebase   Firebase FCM push notification
+  redis        Redis cache layer
+  kafka        Kafka producer/consumer
+  rabbitmq     RabbitMQ publisher/consumer
+  email        SMTP mailer
+  firebase     Firebase FCM push notification
+  google-auth  Google OAuth2 login/register
 
 Example:
-  wapgo add redis`,
+  wapgo add google-auth`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: featureNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -113,9 +141,13 @@ func runAdd(name string) error {
 		return err
 	}
 
-	created, err := generator.AddFeatureFiles(generator.TemplateFS, f.subdir, module, ".")
-	if err != nil {
-		return fmt.Errorf("add %s: %w", name, err)
+	var created []string
+	for _, subdir := range f.subdirs {
+		c, err := generator.AddFeatureFiles(generator.TemplateFS, subdir, module, ".")
+		if err != nil {
+			return fmt.Errorf("add %s (%s): %w", name, subdir, err)
+		}
+		created = append(created, c...)
 	}
 
 	stOK := lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
