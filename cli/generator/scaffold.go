@@ -25,17 +25,23 @@ type ScaffoldOptions struct {
 	Redis       bool   // include Redis cache layer
 	Kafka       bool   // include Kafka producer/consumer
 	RabbitMQ    bool   // include RabbitMQ publisher/consumer
+	Email       bool   // include SMTP email add-on
+	Firebase    bool   // include Firebase FCM add-on
+	GoogleAuth  bool   // include Google OAuth2 add-on
 }
 
 // templateData is the value passed to every skeleton .tmpl file.
 type templateData struct {
-	Module   string
-	AppName  string
-	DB       string
-	APM      string
-	Redis    bool
-	Kafka    bool
-	RabbitMQ bool
+	Module     string
+	AppName    string
+	DB         string
+	APM        string
+	Redis      bool
+	Kafka      bool
+	RabbitMQ   bool
+	Email      bool
+	Firebase   bool
+	GoogleAuth bool
 }
 
 // skipPath reports whether a skeleton-relative path belongs to a disabled
@@ -48,6 +54,16 @@ func (o ScaffoldOptions) skipPath(rel string) bool {
 	case !o.Kafka && (rel == "pkg/messaging/kafka" || strings.HasPrefix(rel, "pkg/messaging/kafka/")):
 		return true
 	case !o.RabbitMQ && (rel == "pkg/messaging/rabbitmq" || strings.HasPrefix(rel, "pkg/messaging/rabbitmq/")):
+		return true
+	case !o.Email && (rel == "pkg/notification/email" || strings.HasPrefix(rel, "pkg/notification/email/")):
+		return true
+	case !o.Firebase && (rel == "pkg/notification/firebase" || strings.HasPrefix(rel, "pkg/notification/firebase/")):
+		return true
+	case !o.GoogleAuth && (rel == "pkg/auth/google" || strings.HasPrefix(rel, "pkg/auth/google/")):
+		return true
+	case !o.GoogleAuth && rel == "internal/delivery/http/handler/google_auth_handler.go.tmpl":
+		return true
+	case !o.GoogleAuth && rel == "internal/delivery/http/route/google_auth_route.go.tmpl":
 		return true
 	}
 	return false
@@ -69,13 +85,16 @@ func Scaffold(fsys fs.FS, opts ScaffoldOptions, targetDir string) error {
 	appName := strings.ReplaceAll(opts.ProjectName, "_", "-")
 
 	data := templateData{
-		Module:   opts.Module,
-		AppName:  appName,
-		DB:       opts.DB,
-		APM:      opts.APM,
-		Redis:    opts.Redis,
-		Kafka:    opts.Kafka,
-		RabbitMQ: opts.RabbitMQ,
+		Module:     opts.Module,
+		AppName:    appName,
+		DB:         opts.DB,
+		APM:        opts.APM,
+		Redis:      opts.Redis,
+		Kafka:      opts.Kafka,
+		RabbitMQ:   opts.RabbitMQ,
+		Email:      opts.Email,
+		Firebase:   opts.Firebase,
+		GoogleAuth: opts.GoogleAuth,
 	}
 
 	return fs.WalkDir(fsys, skeletonDir, func(path string, d fs.DirEntry, err error) error {

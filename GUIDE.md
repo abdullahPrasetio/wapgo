@@ -448,19 +448,34 @@ secara otomatis. Gate `LOG_HTTP_BODIES=true` diperlukan agar body request/respon
 ```go
 import "github.com/abdullahPrasetio/wapgo/pkg/auth"
 
-// Sign access token (token_type:"access", JTI otomatis, expiry dari cfg.JWT.Expiry)
-token, err := auth.Sign("user-123", []string{"admin"}, &cfg.JWT)
+jwtCfg := &auth.Config{
+    Secret:   os.Getenv("JWT_SECRET"), // min 32 bytes
+    Issuer:   "my-service",
+    Audience: "my-api",
+    Expiry:   15 * time.Minute,
+}
 
-// Sign refresh token (token_type:"refresh", expiry biasanya lebih panjang)
-refresh, err := auth.SignRefresh("user-123", &cfg.JWT)
+// Sign — returns (token, jti, error)
+// tokenType: "access" untuk access token, "refresh" untuk refresh token
+token, jti, err := auth.Sign("user-123", []string{"admin"}, "access", jwtCfg)
 
-// Verify token → kembalikan *Claims
-claims, err := auth.Verify(token, &cfg.JWT)
-fmt.Println(claims.Subject, claims.Roles, claims.TokenType, claims.ID) // JTI ada di ID
+// Verify
+claims, err := auth.Verify(token, jwtCfg)
+// claims.Subject   = "user-123"
+// claims.Roles     = []string{"admin"}
+// claims.TokenType = "access"
+// claims.ID (JTI)  = random 16-byte hex string
 
-// Middleware di Fiber route
-app.Use(auth.Middleware(&cfg.JWT))          // tolak token bukan access (refresh ditolak)
-app.Use(auth.RequireRole("admin"))          // RBAC
+// Middleware — tolak request tanpa Bearer token valid
+// Refresh token otomatis ditolak (token_type != "access")
+app.Use(auth.Middleware(jwtCfg))
+
+// Middleware dengan blacklist (cek token revocation)
+bl := auth.NewRedisBlacklist(redisClient)
+app.Use(auth.Middleware(jwtCfg, bl))
+
+// RBAC — hanya role tertentu yang boleh akses
+app.Use(auth.RequireRole("admin"))
 
 // Ambil claims dari handler
 func handler(c *fiber.Ctx) error {
@@ -468,6 +483,10 @@ func handler(c *fiber.Ctx) error {
     fmt.Println(claims.Subject, claims.Roles)
     return nil
 }
+
+// Revoke token (logout / blacklist)
+remaining := time.Until(claims.ExpiresAt.Time)
+bl.Revoke(ctx, jti, remaining)
 ```
 
 **Hardening yang aktif:**

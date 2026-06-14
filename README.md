@@ -128,8 +128,17 @@ wapgo version
 ```
 
 ### Auth & Observability (v0.5–v0.6)
-- **JWT auth** — HS256, pinned algorithm, validates `exp/iat/iss/aud`, `alg:none` rejected, secret ≥ 32 bytes.
+- **JWT auth** — HS256, pinned algorithm, validates `exp/iat/iss/aud`, `alg:none` rejected, secret ≥ 32 bytes. `auth.Sign()` returns `(token, jti, error)`.
+- **Token type claim** — `token_type` claim (`"access"` | `"refresh"`) embedded in every JWT; middleware automatically rejects refresh tokens used as Bearer access tokens.
 - **RBAC** — `auth.RequireRole("admin")` middleware.
+- **Token blacklist** — `auth.NewRedisBlacklist(client, prefix)` for JTI revocation; used by logout to invalidate both access and refresh JTIs.
+
+### Full Auth Flow (v1.2)
+- **`POST /api/v1/auth/login`** — bcrypt verify → issue access + refresh JWT pair; refresh session stored in Redis.
+- **`POST /api/v1/auth/refresh`** — verify session → rotate refresh token; validates user still exists in DB; rejects sessions predating a password reset.
+- **`POST /api/v1/auth/logout`** — blacklists both access and refresh JTIs; deletes refresh session from Redis.
+- **`POST /api/v1/auth/forgot-password`** — stores single-use reset token (Redis TTL 15 min); `reset_token` only returned in non-production envs.
+- **`POST /api/v1/auth/reset-password`** — consumes reset token; increments per-user session version counter to invalidate all active refresh sessions.
 - **Prometheus metrics** — `wapgo_http_requests_total`, `wapgo_http_request_duration_seconds`.
 - **OpenTelemetry** — OTLP HTTP exporter, W3C TraceContext propagation, span per request.
 - **Elastic APM** — `apmfiber`, GORM + Redis + HTTP client instrumentation.

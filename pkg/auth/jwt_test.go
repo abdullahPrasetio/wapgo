@@ -25,19 +25,25 @@ var testCfg = &auth.Config{
 // ── Sign ────────────────────────────────────────────────────────────────────
 
 func TestSign_OK(t *testing.T) {
-	tok, err := auth.Sign("user-1", []string{"admin"}, testCfg)
+	tok, _, err := auth.Sign("user-1", []string{"admin"}, "access", testCfg)
 	require.NoError(t, err)
 	assert.NotEmpty(t, tok)
 	assert.Equal(t, 2, strings.Count(tok, "."), "HS256 JWT has 3 parts separated by 2 dots")
 }
 
 func TestSign_WeakSecret(t *testing.T) {
-	_, err := auth.Sign("u", nil, &auth.Config{Secret: "short"})
+	_, _, err := auth.Sign("u", nil, "access", &auth.Config{Secret: "short"})
 	assert.ErrorIs(t, err, auth.ErrWeakSecret)
 }
 
+func TestSign_ReturnsJTI(t *testing.T) {
+	_, jti, err := auth.Sign("user-1", nil, "access", testCfg)
+	require.NoError(t, err)
+	assert.NotEmpty(t, jti, "Sign should return a non-empty JTI")
+}
+
 func TestSign_SetsJTI(t *testing.T) {
-	tok, err := auth.Sign("user-1", nil, testCfg)
+	tok, _, err := auth.Sign("user-1", nil, "access", testCfg)
 	require.NoError(t, err)
 	claims, err := auth.Verify(tok, testCfg)
 	require.NoError(t, err)
@@ -45,22 +51,22 @@ func TestSign_SetsJTI(t *testing.T) {
 }
 
 func TestSign_JTIIsUnique(t *testing.T) {
-	tok1, _ := auth.Sign("user-1", nil, testCfg)
-	tok2, _ := auth.Sign("user-1", nil, testCfg)
+	tok1, _, _ := auth.Sign("user-1", nil, "access", testCfg)
+	tok2, _, _ := auth.Sign("user-1", nil, "access", testCfg)
 	c1, _ := auth.Verify(tok1, testCfg)
 	c2, _ := auth.Verify(tok2, testCfg)
 	assert.NotEqual(t, c1.ID, c2.ID, "each Sign call must produce a unique JTI")
 }
 
 func TestSign_SetsTokenTypeAccess(t *testing.T) {
-	tok, _ := auth.Sign("user-1", nil, testCfg)
+	tok, _, _ := auth.Sign("user-1", nil, "access", testCfg)
 	claims, err := auth.Verify(tok, testCfg)
 	require.NoError(t, err)
 	assert.Equal(t, "access", claims.TokenType)
 }
 
-func TestSignRefresh_SetsTokenTypeRefresh(t *testing.T) {
-	tok, err := auth.SignRefresh("user-1", testCfg)
+func TestSign_SetsTokenTypeRefresh(t *testing.T) {
+	tok, _, err := auth.Sign("user-1", nil, "refresh", testCfg)
 	require.NoError(t, err)
 	claims, err := auth.Verify(tok, testCfg)
 	require.NoError(t, err)
@@ -70,11 +76,12 @@ func TestSignRefresh_SetsTokenTypeRefresh(t *testing.T) {
 // ── Verify ──────────────────────────────────────────────────────────────────
 
 func TestVerify_Valid(t *testing.T) {
-	tok, _ := auth.Sign("user-42", []string{"reader"}, testCfg)
+	tok, _, _ := auth.Sign("user-42", []string{"reader"}, "access", testCfg)
 	claims, err := auth.Verify(tok, testCfg)
 	require.NoError(t, err)
 	assert.Equal(t, "user-42", claims.Subject)
 	assert.Equal(t, []string{"reader"}, claims.Roles)
+	assert.Equal(t, "access", claims.TokenType)
 }
 
 func TestVerify_WeakSecret(t *testing.T) {
@@ -85,7 +92,7 @@ func TestVerify_WeakSecret(t *testing.T) {
 func TestVerify_Expired(t *testing.T) {
 	cfg := *testCfg
 	cfg.Expiry = -time.Second // already expired
-	tok, _ := auth.Sign("u", nil, &cfg)
+	tok, _, _ := auth.Sign("u", nil, "access", &cfg)
 	_, err := auth.Verify(tok, testCfg)
 	assert.Error(t, err)
 }
@@ -93,7 +100,7 @@ func TestVerify_Expired(t *testing.T) {
 func TestVerify_WrongIssuer(t *testing.T) {
 	wrongCfg := *testCfg
 	wrongCfg.Issuer = "impostor"
-	tok, _ := auth.Sign("u", nil, &wrongCfg)
+	tok, _, _ := auth.Sign("u", nil, "access", &wrongCfg)
 	_, err := auth.Verify(tok, testCfg)
 	assert.Error(t, err)
 }
@@ -101,13 +108,13 @@ func TestVerify_WrongIssuer(t *testing.T) {
 func TestVerify_WrongAudience(t *testing.T) {
 	wrongCfg := *testCfg
 	wrongCfg.Audience = "other-service"
-	tok, _ := auth.Sign("u", nil, &wrongCfg)
+	tok, _, _ := auth.Sign("u", nil, "access", &wrongCfg)
 	_, err := auth.Verify(tok, testCfg)
 	assert.Error(t, err)
 }
 
 func TestVerify_TamperedSignature(t *testing.T) {
-	tok, _ := auth.Sign("u", nil, testCfg)
+	tok, _, _ := auth.Sign("u", nil, "access", testCfg)
 	parts := strings.Split(tok, ".")
 	parts[2] = "invalidsignature"
 	_, err := auth.Verify(strings.Join(parts, "."), testCfg)
@@ -170,7 +177,7 @@ func TestMiddleware_InvalidToken(t *testing.T) {
 
 func TestMiddleware_ValidToken(t *testing.T) {
 	app := newTestApp(testCfg)
-	tok, _ := auth.Sign("user-99", nil, testCfg)
+	tok, _, _ := auth.Sign("user-99", nil, "access", testCfg)
 	resp := bearerReq(t, app, http.MethodGet, "/protected/ping", tok)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	body, _ := io.ReadAll(resp.Body)
@@ -178,25 +185,23 @@ func TestMiddleware_ValidToken(t *testing.T) {
 }
 
 func TestMiddleware_RefreshTokenRejected(t *testing.T) {
-	// A refresh token must not pass the Bearer middleware — only access tokens are accepted.
-	// This prevents a logged-out user from using a stolen refresh token to call protected routes.
 	app := newTestApp(testCfg)
-	tok, err := auth.SignRefresh("user-99", testCfg)
-	require.NoError(t, err)
+	// A refresh token must be rejected by the access-token middleware.
+	tok, _, _ := auth.Sign("user-1", nil, "refresh", testCfg)
 	resp := bearerReq(t, app, http.MethodGet, "/protected/ping", tok)
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 func TestRequireRole_Allowed(t *testing.T) {
 	app := newTestApp(testCfg)
-	tok, _ := auth.Sign("u", []string{"admin"}, testCfg)
+	tok, _, _ := auth.Sign("u", []string{"admin"}, "access", testCfg)
 	resp := bearerReq(t, app, http.MethodGet, "/admin/data", tok)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestRequireRole_Forbidden(t *testing.T) {
 	app := newTestApp(testCfg)
-	tok, _ := auth.Sign("u", []string{"reader"}, testCfg)
+	tok, _, _ := auth.Sign("u", []string{"reader"}, "access", testCfg)
 	resp := bearerReq(t, app, http.MethodGet, "/admin/data", tok)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
@@ -220,7 +225,7 @@ func ExampleSign() {
 		Audience: "my-api",
 		Expiry:   time.Hour,
 	}
-	tok, err := auth.Sign("user-1", []string{"admin"}, cfg)
+	tok, _, err := auth.Sign("user-1", []string{"admin"}, "access", cfg)
 	if err != nil {
 		panic(err)
 	}

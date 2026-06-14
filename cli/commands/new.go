@@ -28,11 +28,12 @@ var (
 
 func newNewCmd() *cobra.Command {
 	var (
-		module               string
-		db                   string
-		apm                  string
-		redis, kafka, rabbit bool
-		yes                  bool
+		module                            string
+		db                                string
+		apm                               string
+		redis, kafka, rabbit              bool
+		email, firebase, googleAuth       bool
+		yes                               bool
 	)
 
 	cmd := &cobra.Command{
@@ -55,7 +56,7 @@ Or pass everything up-front for non-interactive / CI use:
 			interactive := !yes && isatty.IsTerminal(os.Stdin.Fd())
 
 			if interactive {
-				if err := runWizard(&projectName, &module, &db, &apm, &redis, &kafka, &rabbit); err != nil {
+				if err := runWizard(&projectName, &module, &db, &apm, &redis, &kafka, &rabbit, &email, &firebase, &googleAuth); err != nil {
 					return err
 				}
 			} else {
@@ -88,6 +89,9 @@ Or pass everything up-front for non-interactive / CI use:
 				Redis:       redis,
 				Kafka:       kafka,
 				RabbitMQ:    rabbit,
+				Email:       email,
+				Firebase:    firebase,
+				GoogleAuth:  googleAuth,
 			}
 
 			if err := generator.Scaffold(generator.TemplateFS, opts, targetDir); err != nil {
@@ -114,13 +118,16 @@ Or pass everything up-front for non-interactive / CI use:
 	cmd.Flags().BoolVar(&redis, "redis", false, "Include Redis cache layer")
 	cmd.Flags().BoolVar(&kafka, "kafka", false, "Include Kafka producer/consumer")
 	cmd.Flags().BoolVar(&rabbit, "rabbitmq", false, "Include RabbitMQ publisher/consumer")
+	cmd.Flags().BoolVar(&email, "email", false, "Include SMTP email add-on")
+	cmd.Flags().BoolVar(&firebase, "firebase", false, "Include Firebase FCM push notification add-on")
+	cmd.Flags().BoolVar(&googleAuth, "google-auth", false, "Include Google OAuth2 add-on")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Non-interactive: use flags/defaults, skip the wizard")
 
 	return cmd
 }
 
 // runWizard drives the interactive huh form, mutating the passed-in values.
-func runWizard(projectName, module, db, apm *string, redis, kafka, rabbit *bool) error {
+func runWizard(projectName, module, db, apm *string, redis, kafka, rabbit, email, firebase, googleAuth *bool) error {
 	if *db == "" {
 		*db = "postgres"
 	}
@@ -138,6 +145,15 @@ func runWizard(projectName, module, db, apm *string, redis, kafka, rabbit *bool)
 	}
 	if *rabbit {
 		features = append(features, "rabbitmq")
+	}
+	if *email {
+		features = append(features, "email")
+	}
+	if *firebase {
+		features = append(features, "firebase")
+	}
+	if *googleAuth {
+		features = append(features, "google-auth")
 	}
 
 	form := huh.NewForm(
@@ -183,11 +199,14 @@ func runWizard(projectName, module, db, apm *string, redis, kafka, rabbit *bool)
 
 			huh.NewMultiSelect[string]().
 				Title("Optional features").
-				Description("Space to toggle · Enter to confirm · add more later with `wapgo add`").
+				Description("Space to toggle · Enter to confirm · can also be added later with `wapgo add`").
 				Options(
 					huh.NewOption("Redis cache", "redis"),
 					huh.NewOption("Kafka producer/consumer", "kafka"),
 					huh.NewOption("RabbitMQ publisher/consumer", "rabbitmq"),
+					huh.NewOption("Email (SMTP mailer)", "email"),
+					huh.NewOption("Firebase FCM push notification", "firebase"),
+					huh.NewOption("Google OAuth2 login", "google-auth"),
 				).
 				Value(&features),
 		),
@@ -200,6 +219,9 @@ func runWizard(projectName, module, db, apm *string, redis, kafka, rabbit *bool)
 	*redis = contains(features, "redis")
 	*kafka = contains(features, "kafka")
 	*rabbit = contains(features, "rabbitmq")
+	*email = contains(features, "email")
+	*firebase = contains(features, "firebase")
+	*googleAuth = contains(features, "google-auth")
 	return nil
 }
 
@@ -229,6 +251,9 @@ func printSummary(opts generator.ScaffoldOptions) {
 		{"redis", feat(opts.Redis)},
 		{"kafka", feat(opts.Kafka)},
 		{"rabbitmq", feat(opts.RabbitMQ)},
+		{"email", feat(opts.Email)},
+		{"firebase", feat(opts.Firebase)},
+		{"google-auth", feat(opts.GoogleAuth)},
 	}
 
 	fmt.Println()
@@ -245,7 +270,7 @@ func printSummary(opts generator.ScaffoldOptions) {
 	fmt.Printf("    %s\n", stCmd.Render("make run"))
 	fmt.Println()
 	fmt.Printf("  Add a domain:   %s\n", stCmd.Render("wapgo make:all product"))
-	fmt.Printf("  Add a feature:  %s\n", stCmd.Render("wapgo add redis | kafka | rabbitmq"))
+	fmt.Printf("  Add a feature:  %s\n", stCmd.Render("wapgo add redis | kafka | rabbitmq | email | firebase | google-auth"))
 	fmt.Println()
 }
 

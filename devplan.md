@@ -177,6 +177,90 @@ Dokumen ini adalah peta jalan pengembangan framework. Acuan spesifikasi: [`promp
 
 **DoD:** ✅ CI pipeline hijau termasuk semua gerbang keamanan; Dockerfile distroless terbangun; integration tests jalan via testcontainers; `examples/` tersedia; K8s manifests ter-harden; dokumentasi lengkap.
 
+### Fase v1.2 — Security Hardening & Auth Completeness ✅ SELESAI (2026-06-12)
+
+**Tujuan:** Menutup celah keamanan yang ditemukan dari audit menyeluruh, dan melengkapi flow autentikasi agar production-ready.
+
+#### 🔴 Security — HIGH
+
+- [x] **`json:"-"` pada field Password** — Field `Password` di `internal/domain/entity/user.go` sudah memiliki tag `json:"-"`.
+- [x] **Auth middleware per-route** — `auth.Middleware(jwtCfg, bl)` di-attach ke semua route `/users`; di-pass via `RegisterUserRoutes`.
+- [x] **RBAC per-route** — `auth.RequireRole("admin")` diterapkan pada `DELETE /users/:id`.
+
+#### 🟡 Security — MEDIUM
+
+- [x] **Token revocation / blacklist** — `pkg/auth/blacklist.go`: `RedisBlacklist` (Revoke + IsRevoked). `Middleware` cek blacklist opsional via variadic arg. Logout revokes access token JTI.
+- [x] **Trusted proxy untuk rate limiter** — `APP_TRUSTED_PROXIES` (comma-separated) dikonfigurasi ke `fiber.Config.TrustedProxies` + `EnableTrustedProxyCheck`.
+- [x] **CSRF protection** — Tidak diimplementasi (JSON-only API; CSRF tidak relevan untuk token-based auth tanpa cookie).
+
+#### 🟢 Auth Completeness
+
+- [x] **Login endpoint** — `POST /api/v1/auth/login` → bcrypt verify + sign access+refresh JWT + store refresh session di Redis.
+- [x] **Refresh token endpoint** — `POST /api/v1/auth/refresh` → verifikasi + rotasi refresh session.
+- [x] **Logout endpoint** — `POST /api/v1/auth/logout` → revoke access token JTI ke blacklist + hapus refresh session.
+- [x] **Password reset flow** — `POST /api/v1/auth/forgot-password` + `POST /api/v1/auth/reset-password`. Token UUID disimpan di Redis TTL 15 menit; single-use.
+
+#### 🔵 Data & Domain
+
+- [x] **Soft delete pattern** — `DeletedAt gorm.DeletedAt` sudah ada di `User` entity sejak v0.1; GORM otomatis filter.
+- [x] **Audit log** — `pkg/auditlog/` dengan `Logger`, `Entry`, `Action` constants; context-propagated via `WithAuditLogger`/`FromContext`.
+- [x] **Field-level encryption untuk PII** — `pkg/crypto/` dengan `Encryptor` AES-256-GCM; `Encrypt`/`Decrypt` non-deterministik (fresh nonce tiap call).
+
+#### Checklist DoD Fase v1.2
+
+- [x] `go test ./... -cover` semua paket terdampak > 80% (auth 84.3% · crypto 84.0% · auditlog 88.9% · usecase 81.0% · handler 92.6%).
+- [x] Password hash tidak muncul di response API (tag `json:"-"` verified).
+- [x] Route `/users` butuh Bearer token valid.
+- [x] Token logout tidak bisa dipakai lagi (test blacklist).
+- [x] Login + refresh + logout flow end-to-end teruji di `auth_usecase_test.go`.
+
+---
+
+### Fase v1.3 — Resilience & Operational Excellence ✅ SELESAI (2026-06-12)
+
+**Tujuan:** Kesiapan operasional jangka panjang: soft delete, audit trail, dan observability yang lebih dalam.
+
+- [x] **Query timeout enforcement** — `pkg/database/timeout.go`: `QueryTimeoutPlugin` GORM; konfigurabel via `DB_QUERY_TIMEOUT` (default 5s); before/after callbacks per operation group.
+- [x] **Request size per-endpoint** — `mw.WithBodyLimit(maxBytes)` di `internal/delivery/http/middleware/security.go`; pakai di route individual.
+- [ ] **Error codes terstruktur** — Ditunda; `pkg/response/` sudah punya `ErrorCode` string constants yang cukup untuk versi ini.
+- [x] **Correlation ID ke external system** — Sudah ada sejak v0.3 (outgoing HTTP + Kafka + RabbitMQ); audit log menerima `RequestID` field.
+- [x] **Graceful degradation** — `RedisCacher.Get` mengembalikan `ErrCacheMiss` (bukan error) saat Redis unavailable → caller fallback ke DB tanpa crash.
+- [x] **bcrypt cost configurable** — `BCRYPT_COST` ENV → `cfg.App.BcryptCost`; minimum 10, default 12; dikonsumsi `NewAuthUseCase`.
+
+### Fase v1.4 — Security Hardening (Post-Audit) ✅ SELESAI (2026-06-12)
+
+**Tujuan:** Menutup 8 temuan dari security review fase v1.2/v1.3 — 1 Critical, 1 High, 3 Medium, 3 Low.
+
+#### 🔴 Critical
+
+- [x] **Reset token env-gated** — `AuthHandler` kini punya field `env`; `reset_token` hanya dikirim ke caller bila `env != "production"`. `NewAuthHandler` diperluas dengan parameter `env string`. Cegah account takeover via leaked reset token di production response.
+
+#### 🟠 High
+
+- [x] **Token confusion dieliminasi** — Tambah claim `token_type` (`"access"` | `"refresh"`) ke `pkg/auth/claims.go`. `Middleware` menolak token dengan `token_type != "access"`. `Logout` juga memblacklist JTI refresh token (bukan hanya access). Sebelumnya refresh token bisa dipakai sebagai Bearer Authorization selama 7 hari meski sudah logout.
+
+#### 🟡 Medium
+
+- [x] **Redis error di-log sebelum degradasi** — `RedisCacher.Get` kini emit `log.Warn` dengan error asli sebelum mengembalikan `ErrCacheMiss`. Operator bisa membedakan 401-storm akibat Redis outage vs token kadaluarsa.
+- [x] **Refresh validasi keberadaan user di DB** — Setelah verifikasi refresh session Redis, `Refresh` memanggil `userRepo.FindByID`. Token milik user yang sudah dihapus/banned tidak bisa dipakai untuk mendapat access token baru.
+- [x] **Session invalidation on password reset** — Password reset kini increment `auth:ver:{userID}` counter di Redis. Setiap refresh session embed versi saat dibuat (`refreshSession{Sub, Ver}`); `Refresh` menolak session dengan versi lebih lama dari counter.
+
+#### 🔵 Low
+
+- [x] **bcrypt minimum cost = 10** — `NewAuthUseCase` floor check diubah dari `bcrypt.MinCost` (= 4) ke literal `10`, konsisten dengan dokumentasi dan konfigurasi `main.go`.
+- [x] **`auth.Sign()` return JTI langsung** — Signature diubah ke `(token, jti string, err error)`. `issueTokenPair` tidak lagi perlu Verify round-trip untuk mengekstrak JTI refresh token.
+- [x] **`WithBodyLimit` doc clarification** — Tambah komentar: body sudah di-buffer Fiber (global 4MB) sebelum middleware ini jalan; middleware ini enforce semantic limit post-buffer, bukan mencegah buffering.
+
+#### Checklist DoD Fase v1.4
+
+- [x] `go test ./...` semua paket hijau.
+- [x] Test baru: `TestSign_ReturnsJTI`, `TestMiddleware_RefreshTokenRejected`, `TestAuthUseCase_Refresh_InvalidAfterPasswordReset`, `TestAuthUseCase_Logout_BlacklistsRefreshJTI`.
+- [x] `mockCacher` pakai JSON marshal/unmarshal — perilaku identik dengan Redis production.
+- [x] `examples/` (jwt, auth, shop) semua di-update ke signature `Sign()` baru.
+- [x] Reset token tidak muncul di response bila `APP_ENV=production`.
+- [x] Refresh token tidak bisa dipakai sebagai Bearer access token.
+- [x] Refresh token lama tidak bisa dipakai setelah password reset.
+
 ---
 
 ## 4. Matriks Dependency
