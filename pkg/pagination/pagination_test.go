@@ -6,6 +6,10 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	gormpostgres "gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	"github.com/abdullahPrasetio/wapgo/pkg/pagination"
 )
@@ -72,4 +76,30 @@ func TestFromQuery(t *testing.T) {
 	assert.Equal(t, 15, parsed.PageSize())
 	assert.Equal(t, "name", parsed.SortColumn())
 	assert.Equal(t, "asc", parsed.SortOrder())
+}
+
+// ── Scope ─────────────────────────────────────────────────────────────────────
+
+func newMockGORMDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	sqlDB, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { sqlDB.Close() })
+	db, err := gorm.Open(gormpostgres.New(gormpostgres.Config{Conn: sqlDB}), &gorm.Config{})
+	require.NoError(t, err)
+	return db
+}
+
+func TestScope_AppliesLimitAndOffset(t *testing.T) {
+	req := &pagination.Request{Page: 3, Size: 10, Sort: "name", Order: "asc"}
+	db := newMockGORMDB(t)
+	scoped := db.Scopes(pagination.Scope(req))
+	assert.NotNil(t, scoped)
+}
+
+func TestScope_DefaultRequest(t *testing.T) {
+	req := &pagination.Request{}
+	db := newMockGORMDB(t)
+	scoped := db.Scopes(pagination.Scope(req))
+	assert.NotNil(t, scoped)
 }

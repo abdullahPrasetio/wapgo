@@ -1,13 +1,16 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gormpostgres "gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	"github.com/abdullahPrasetio/wapgo/config"
 )
@@ -153,5 +156,90 @@ func TestOpenWithDialector_PoolError(t *testing.T) {
 	cfg := &config.DBConfig{ConnMaxLife: "bad-duration"}
 	_, err = openWithDialector(dialector, cfg)
 	assert.ErrorContains(t, err, "invalid conn_max_life")
+}
+
+// ── QueryTimeoutPlugin ────────────────────────────────────────────────────────
+
+func newGORMDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	sqlDB, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { sqlDB.Close() })
+	db, err := gorm.Open(gormpostgres.New(gormpostgres.Config{Conn: sqlDB}), &gorm.Config{})
+	require.NoError(t, err)
+	return db
+}
+
+func TestNewQueryTimeoutPlugin_DefaultTimeout(t *testing.T) {
+	p := NewQueryTimeoutPlugin(0)
+	assert.Equal(t, 5*time.Second, p.timeout)
+}
+
+func TestNewQueryTimeoutPlugin_CustomTimeout(t *testing.T) {
+	p := NewQueryTimeoutPlugin(10 * time.Second)
+	assert.Equal(t, 10*time.Second, p.timeout)
+}
+
+func TestQueryTimeoutPlugin_Name(t *testing.T) {
+	p := NewQueryTimeoutPlugin(0)
+	assert.Equal(t, "QueryTimeoutPlugin", p.Name())
+}
+
+func TestQueryTimeoutPlugin_Initialize(t *testing.T) {
+	db := newGORMDB(t)
+	p := NewQueryTimeoutPlugin(5 * time.Second)
+	err := p.Initialize(db)
+	assert.NoError(t, err)
+}
+
+func TestQueryTimeoutPlugin_Before_SetsDeadline(t *testing.T) {
+	p := NewQueryTimeoutPlugin(5 * time.Second)
+	db := &gorm.DB{Statement: &gorm.Statement{Context: context.Background()}}
+	p.before(db)
+	_, hasDeadline := db.Statement.Context.Deadline()
+	assert.True(t, hasDeadline)
+}
+
+func TestQueryTimeoutPlugin_Before_NilStatement(t *testing.T) {
+	p := NewQueryTimeoutPlugin(5 * time.Second)
+	db := &gorm.DB{} // Statement is nil — should return without panic
+	p.before(db)
+}
+
+func TestQueryTimeoutPlugin_Before_SkipsExistingDeadline(t *testing.T) {
+	p := NewQueryTimeoutPlugin(5 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	stmt := &gorm.Statement{Context: ctx}
+	db := &gorm.DB{Statement: stmt}
+	original := db.Statement.Context
+	p.before(db)
+	assert.Equal(t, original, db.Statement.Context)
+}
+
+func TestQueryTimeoutPlugin_Before_NilContext(t *testing.T) {
+	p := NewQueryTimeoutPlugin(5 * time.Second)
+	db := &gorm.DB{Statement: &gorm.Statement{Context: nil}}
+	p.before(db)
+	assert.NotNil(t, db.Statement.Context)
+}
+
+func TestQueryTimeoutPlugin_After_CancelsContext(t *testing.T) {
+	p := NewQueryTimeoutPlugin(5 * time.Second)
+	db := &gorm.DB{Statement: &gorm.Statement{Context: context.Background()}}
+	p.before(db)
+	p.after(db)
+	// After cancel the stored timeout context must be done.
+	select {
+	case <-db.Statement.Context.Done():
+	default:
+		t.Fatal("expected context to be cancelled after after()")
+	}
+}
+
+func TestQueryTimeoutPlugin_After_NilStatement(t *testing.T) {
+	p := NewQueryTimeoutPlugin(5 * time.Second)
+	db := &gorm.DB{}
+	p.after(db) // must not panic
 }
 

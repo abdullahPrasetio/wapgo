@@ -308,3 +308,43 @@ func TestExistsByEmail_NotExists(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists)
 }
+
+// ── FindByEmail ───────────────────────────────────────────────────────────────
+
+func TestFindByEmail_Found(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	expected := &entity.User{ID: uuid.New(), Name: "Alice", Email: "alice@example.com", Password: "h"}
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users"`)).
+		WithArgs("alice@example.com", 1).
+		WillReturnRows(userRow(expected))
+
+	got, err := repo.FindByEmail(context.Background(), "alice@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, expected.Email, got.Email)
+}
+
+func TestFindByEmail_NotFound(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users"`)).
+		WithArgs("nobody@example.com", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()))
+
+	_, err := repo.FindByEmail(context.Background(), "nobody@example.com")
+	assert.Error(t, err)
+}
+
+func TestFindByEmail_DBError(t *testing.T) {
+	db, mock := newMockDB(t)
+	repo := dbrepo.NewUserRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users"`)).
+		WithArgs("err@example.com", 1).
+		WillReturnError(sql.ErrConnDone)
+
+	_, err := repo.FindByEmail(context.Background(), "err@example.com")
+	assert.Error(t, err)
+}

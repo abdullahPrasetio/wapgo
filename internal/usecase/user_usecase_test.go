@@ -285,3 +285,25 @@ func TestDeleteUser_RepoError(t *testing.T) {
 	err := uc.DeleteUser(context.Background(), u.ID.String())
 	require.Error(t, err)
 }
+
+// ── ListUsersPaged ────────────────────────────────────────────────────────────
+
+func TestListUsersPaged_Success(t *testing.T) {
+	uc := usecase.NewUserUseCase(newMockRepo())
+	seedUser(t, uc)
+
+	req := &pagination.Request{Page: 1, Size: 10}
+	users, total, err := uc.ListUsersPaged(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Len(t, users, 1)
+}
+
+func TestListUsersPaged_RepoError(t *testing.T) {
+	repo := newMockRepo()
+	repo.forceErr = errors.New("db err")
+	uc := usecase.NewUserUseCase(repo)
+
+	_, _, err := uc.ListUsersPaged(context.Background(), &pagination.Request{})
+	require.Error(t, err)
+}

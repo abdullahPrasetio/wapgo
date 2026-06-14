@@ -79,6 +79,26 @@ func TestTraceContext_FallbackWhenNoMiddleware(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
+func TestTraceID_ReturnsEmptyWhenNoTrace(t *testing.T) {
+	result := observability.TraceID(context.Background())
+	assert.Equal(t, "", result)
+}
+
+func TestStartSpan_ReturnsContextAndEndFunc(t *testing.T) {
+	ctx, end := observability.StartSpan(context.Background(), "test-span")
+	assert.NotNil(t, ctx)
+	assert.NotNil(t, end)
+	end() // must not panic
+}
+
+func TestStartSpan_WithOTelProvider(t *testing.T) {
+	p := newOTelProvider(t, true)
+	_ = p
+	ctx, end := observability.StartSpan(context.Background(), "my-op")
+	defer end()
+	assert.NotNil(t, ctx)
+}
+
 func ExampleNew() {
 	cfg := &config.ObservabilityConfig{
 		Provider:       "otel", // or "elastic_apm"

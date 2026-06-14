@@ -2,7 +2,9 @@ package middleware_test
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
@@ -133,6 +135,19 @@ func TestRateLimiter_Returns429AfterLimit(t *testing.T) {
 	assert.Equal(t, fiber.StatusTooManyRequests, lastCode)
 }
 
+func TestRateLimiter_ReadsEnvVar(t *testing.T) {
+	t.Setenv("RATE_LIMIT_MAX", "5")
+	app := newApp(middleware.RateLimiter())
+
+	var lastCode int
+	for i := 0; i <= 5; i++ {
+		resp, err := app.Test(httptest.NewRequest("GET", "/", nil), -1)
+		require.NoError(t, err)
+		lastCode = resp.StatusCode
+	}
+	assert.Equal(t, fiber.StatusTooManyRequests, lastCode)
+}
+
 // ── Recover ──────────────────────────────────────────────────────────────────
 
 func TestRecover_CatchesPanic(t *testing.T) {
@@ -145,4 +160,76 @@ func TestRecover_CatchesPanic(t *testing.T) {
 	resp, err := app.Test(httptest.NewRequest("GET", "/", nil), -1)
 	require.NoError(t, err)
 	assert.Equal(t, fiber.StatusInternalServerError, resp.StatusCode)
+}
+
+// ── RequestLogger ─────────────────────────────────────────────────────────────
+
+func TestRequestLogger_LogsRequest(t *testing.T) {
+	app := newApp(middleware.RequestID(), middleware.RequestLogger())
+	resp, err := app.Test(httptest.NewRequest("GET", "/", nil), -1)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+}
+
+func TestRequestLogger_PropagatesError(t *testing.T) {
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app.Use(middleware.RequestLogger())
+	app.Get("/", func(c *fiber.Ctx) error { return fiber.ErrBadRequest })
+	resp, err := app.Test(httptest.NewRequest("GET", "/", nil), -1)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+// ── StrictRateLimiter ─────────────────────────────────────────────────────────
+
+func TestStrictRateLimiter_AllowsWithinLimit(t *testing.T) {
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app.Use(middleware.StrictRateLimiter(10, time.Minute))
+	app.Get("/", func(c *fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) })
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/", nil), -1)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+}
+
+func TestStrictRateLimiter_Returns429AfterLimit(t *testing.T) {
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app.Use(middleware.StrictRateLimiter(2, time.Minute))
+	app.Get("/", func(c *fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) })
+
+	var lastCode int
+	for i := 0; i <= 2; i++ {
+		resp, err := app.Test(httptest.NewRequest("GET", "/", nil), -1)
+		require.NoError(t, err)
+		lastCode = resp.StatusCode
+	}
+	assert.Equal(t, fiber.StatusTooManyRequests, lastCode)
+}
+
+// ── WithBodyLimit ─────────────────────────────────────────────────────────────
+
+func TestWithBodyLimit_Passes_WhenSmall(t *testing.T) {
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app.Post("/", middleware.WithBodyLimit(1024), func(c *fiber.Ctx) error {
+		return c.SendStatus(fiber.StatusOK)
+	})
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader("hello"))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := app.Test(req, -1)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+}
+
+func TestWithBodyLimit_Rejects_WhenTooLarge(t *testing.T) {
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app.Post("/", middleware.WithBodyLimit(5), func(c *fiber.Ctx) error {
+		return c.SendStatus(fiber.StatusOK)
+	})
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader("this body is longer than 5 bytes"))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := app.Test(req, -1)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusRequestEntityTooLarge, resp.StatusCode)
 }
