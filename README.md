@@ -121,6 +121,8 @@ wapgo make:test <name> [--layer usecase|handler]      # unit test boilerplate
 wapgo make:event <name>                               # Kafka event producer + consumer
 wapgo make:worker [name] [--broker kafka|rabbitmq|both]  # standalone worker binary
 wapgo add redis | kafka | rabbitmq                    # add optional feature to existing project
+wapgo make:key                                        # generate a random JWT_SECRET (32 bytes)
+wapgo make:key --len 64 --write                       # 64-byte key, write directly to .env
 wapgo list                                            # list generated domains in current project
 wapgo upgrade                                         # check and self-update to latest release
 wapgo upgrade --check                                 # check only, do not install

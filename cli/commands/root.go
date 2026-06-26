@@ -58,4 +58,5 @@ func init() {
 	rootCmd.AddCommand(newMakeWorkerCmd())
 	rootCmd.AddCommand(newListCmd())
 	rootCmd.AddCommand(newUpgradeCmd())
+	rootCmd.AddCommand(newMakeKeyCmd())
 }

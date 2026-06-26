@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.2] — 2026-06-26
+
+### Added
+- **`wapgo make:key`** — generates a cryptographically-secure random secret key (default 32 bytes,
+  hex-encoded). Useful for populating `JWT_SECRET` in `.env`.
+  - `--len <n>` — change byte length (minimum 16; output is 2× longer in hex).
+  - `--write` — write/replace `JWT_SECRET=<key>` directly in the local `.env` file without
+    having to copy-paste.
+- **`JWT_SECRET` added to scaffolded `.env.example`** — `wapgo new` now includes
+  `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`, and `JWT_EXPIRY` in the generated `.env.example`.
+  Previously these were bound in `config.go` but absent from the env file, causing
+  `pkg/auth: jwt secret must be at least 32 bytes` at first run.
+
+---
+
 ## [1.7.0] — 2026-06-15
 
 ### Added
