@@ -1006,10 +1006,33 @@ healthHandler.AddChecker("my-service", func(ctx context.Context) error {
 | `make sec` | gosec + govulncheck |
 | `make docker-up` | Jalankan semua infrastruktur (Docker) |
 | `make docker-down` | Stop Docker |
-| `make migrate` | Jalankan auto-migrate GORM |
+| `make migrate` | Terapkan semua migrasi SQL yang tertunda (`cmd/migrate`) |
+| `make migrate-down` | Rollback satu migrasi |
+| `make migrate-version` | Tampilkan versi migrasi + status dirty |
+| `make migrate-force V=n` | Bersihkan status dirty setelah migrasi gagal |
 | `make tidy` | `go mod tidy` |
 
+### Migrasi database
+
+Skema dikelola oleh file SQL di `migrations/` (nama `{versi}_{nama}.up.sql` /
+`.down.sql`, kompatibel dengan golang-migrate) dan dijalankan oleh
+`cmd/migrate`. File SQL di-embed ke binary, jadi tidak perlu menyalin folder
+saat deploy.
+
+```bash
+make migrate                 # semua migrasi tertunda
+make migrate-down            # rollback satu langkah
+make migrate-version         # versi saat ini + dirty flag
+make migrate-force V=3       # setelah memperbaiki migrasi yang gagal
+wapgo make:migration add_orders   # buat pasangan up/down baru
+```
+
+`DB_AUTO_MIGRATE` hanya untuk development: API menolak start di
+`APP_ENV=production` bila nilainya `true`. Jalankan `make migrate` sebagai
+langkah deploy (init container / job terpisah).
+
 ---
+
 
 ## 11. Fitur Security Bawaan
 
@@ -1076,7 +1099,7 @@ DB_PASSWORD=secret
 DB_MAX_OPEN_CONNS=25
 DB_MAX_IDLE_CONNS=5
 DB_CONN_MAX_LIFE=5m
-DB_AUTO_MIGRATE=true
+DB_AUTO_MIGRATE=false   # dev-only; production wajib false, gunakan make migrate
 DB_SSL_MODE=disable
 
 # Redis

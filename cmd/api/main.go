@@ -87,6 +87,10 @@ func main() {
 	log.Info().Str("driver", cfg.DB.Driver).Msg("database connected")
 
 	if cfg.DB.AutoMigrate {
+		if cfg.App.Env == "production" {
+			log.Fatal().Msg("DB_AUTO_MIGRATE is not allowed in production; run ./cmd/migrate instead")
+		}
+		log.Warn().Msg("DB_AUTO_MIGRATE is enabled: development only, use ./cmd/migrate for real schema changes")
 		if err := db.AutoMigrate(&entity.User{}); err != nil {
 			log.Fatal().Err(err).Msg("auto-migrate failed")
 		}
@@ -157,7 +161,7 @@ func main() {
 		IdleTimeout:           120 * time.Second,
 		DisableStartupMessage: true,
 		// Trusted proxies: use X-Forwarded-For only from known load balancers/ingress.
-		TrustedProxies:      trustedProxies,
+		TrustedProxies:          trustedProxies,
 		EnableTrustedProxyCheck: len(trustedProxies) > 0,
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError

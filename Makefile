@@ -84,8 +84,22 @@ list:
 	@echo "Generated domains:"
 	@ls internal/usecase/*_usecase.go 2>/dev/null | sed 's|internal/usecase/||;s|_usecase.go||' | sort | sed 's/^/  • /'
 
+# ── Migrations ────────────────────────────────────────────────────────────────
+# Schema changes go through embedded SQL (migrations/*.sql). Never rely on
+# DB_AUTO_MIGRATE outside local development.
 migrate:
-	go run cmd/api/main.go migrate
+	go run ./cmd/migrate -dir up
+
+migrate-down:
+	go run ./cmd/migrate -dir down -steps 1
+
+migrate-version:
+	go run ./cmd/migrate -dir version
+
+# Clear a dirty state after fixing a failed migration: make migrate-force V=3
+migrate-force:
+	@test -n "$(V)" || (echo "usage: make migrate-force V=<version>"; exit 1)
+	go run ./cmd/migrate -dir force -version $(V)
 
 tidy:
 	go mod tidy
