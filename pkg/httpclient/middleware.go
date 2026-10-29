@@ -68,7 +68,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		// 5xx — drain and close body, then retry.
 		io.Copy(io.Discard, resp.Body) //nolint:errcheck
-		resp.Body.Close() //nolint:errcheck
+		resp.Body.Close()              //nolint:errcheck
 		lastStatus = resp.StatusCode
 	}
 
@@ -126,10 +126,11 @@ func (t *cbTransport) State() string {
 type ssrfGuardTransport struct {
 	inner        http.RoundTripper
 	allowedHosts []string
+	allowPrivate bool
 }
 
 func (t *ssrfGuardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if err := validateHost(req.URL.Hostname(), t.allowedHosts); err != nil {
+	if err := validateHost(req.URL.Hostname(), t.allowedHosts, t.allowPrivate); err != nil {
 		return nil, err
 	}
 	return t.inner.RoundTrip(req)
@@ -137,22 +138,23 @@ func (t *ssrfGuardTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 // ssrfCheckRedirect is used as http.Client.CheckRedirect to validate redirect
 // targets as a second line of defence and cap the redirect chain at 10 hops.
-func ssrfCheckRedirect(allowedHosts []string) func(*http.Request, []*http.Request) error {
+func ssrfCheckRedirect(allowedHosts []string, allowPrivate bool) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
 			return fmt.Errorf("httpclient: stopped after 10 redirects")
 		}
-		return validateHost(req.URL.Hostname(), allowedHosts)
+		return validateHost(req.URL.Hostname(), allowedHosts, allowPrivate)
 	}
 }
 
-// validateHost returns an error when host is internal/loopback/link-local or
-// is absent from allowedHosts (when the allowlist is non-empty).
-func validateHost(host string, allowedHosts []string) error {
+// validateHost returns an error when host is internal/loopback/link-local
+// (unless allowPrivate), or is absent from allowedHosts (when the allowlist is
+// non-empty). The dialer repeats the check on resolved IPs.
+func validateHost(host string, allowedHosts []string, allowPrivate bool) error {
 	if host == "" {
 		return fmt.Errorf("httpclient: SSRF protection: empty host")
 	}
-	if isInternalHost(host) {
+	if !allowPrivate && isInternalHost(host) {
 		return fmt.Errorf("httpclient: SSRF protection: host %q is internal/loopback/link-local", host)
 	}
 	if len(allowedHosts) == 0 {

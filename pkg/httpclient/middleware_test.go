@@ -247,13 +247,13 @@ func TestSSRFGuard_BlocksInternalWhenAllowlistSet(t *testing.T) {
 }
 
 func TestValidateHost_EmptyHost(t *testing.T) {
-	err := validateHost("", nil)
+	err := validateHost("", nil, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty host")
 }
 
 func TestValidateHost_AllowlistCaseInsensitive(t *testing.T) {
-	err := validateHost("API.EXAMPLE.COM", []string{"api.example.com"})
+	err := validateHost("API.EXAMPLE.COM", []string{"api.example.com"}, false)
 	assert.NoError(t, err)
 }
 
@@ -343,7 +343,7 @@ func TestRetryTransport_GetBodyError(t *testing.T) {
 }
 
 func TestSSRFCheckRedirect_TooManyRedirects(t *testing.T) {
-	fn := ssrfCheckRedirect(nil)
+	fn := ssrfCheckRedirect(nil, false)
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
 	err := fn(req, make([]*http.Request, 10))
 	require.Error(t, err)
@@ -351,7 +351,7 @@ func TestSSRFCheckRedirect_TooManyRedirects(t *testing.T) {
 }
 
 func TestSSRFCheckRedirect_BlocksInternal(t *testing.T) {
-	fn := ssrfCheckRedirect(nil)
+	fn := ssrfCheckRedirect(nil, false)
 	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/redirect", nil)
 	err := fn(req, []*http.Request{})
 	require.Error(t, err)
@@ -359,7 +359,7 @@ func TestSSRFCheckRedirect_BlocksInternal(t *testing.T) {
 }
 
 func TestSSRFCheckRedirect_AllowsPublic(t *testing.T) {
-	fn := ssrfCheckRedirect(nil)
+	fn := ssrfCheckRedirect(nil, false)
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com/redirect", nil)
 	err := fn(req, []*http.Request{})
 	assert.NoError(t, err)

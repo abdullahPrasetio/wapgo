@@ -101,29 +101,33 @@ func (t *cbTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 type ssrfGuardTransport struct {
 	inner        http.RoundTripper
 	allowedHosts []string
+	allowPrivate bool
 }
 
 func (t *ssrfGuardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if err := validateHost(req.URL.Hostname(), t.allowedHosts); err != nil {
+	if err := validateHost(req.URL.Hostname(), t.allowedHosts, t.allowPrivate); err != nil {
 		return nil, err
 	}
 	return t.inner.RoundTrip(req)
 }
 
-func ssrfCheckRedirect(allowedHosts []string) func(*http.Request, []*http.Request) error {
+func ssrfCheckRedirect(allowedHosts []string, allowPrivate bool) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
 			return fmt.Errorf("httpclient: stopped after 10 redirects")
 		}
-		return validateHost(req.URL.Hostname(), allowedHosts)
+		return validateHost(req.URL.Hostname(), allowedHosts, allowPrivate)
 	}
 }
 
-func validateHost(host string, allowedHosts []string) error {
+// validateHost returns an error when host is internal/loopback/link-local
+// (unless allowPrivate), or is absent from allowedHosts (when the allowlist is
+// non-empty). The dialer repeats the check on resolved IPs.
+func validateHost(host string, allowedHosts []string, allowPrivate bool) error {
 	if host == "" {
 		return fmt.Errorf("httpclient: SSRF protection: empty host")
 	}
-	if isInternalHost(host) {
+	if !allowPrivate && isInternalHost(host) {
 		return fmt.Errorf("httpclient: SSRF protection: host %q is internal/loopback/link-local", host)
 	}
 	if len(allowedHosts) == 0 {

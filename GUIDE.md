@@ -1046,7 +1046,7 @@ Semua aktif tanpa konfigurasi tambahan:
 | **CORS** | Allowlist ketat via `CORS_ALLOWED_ORIGINS` |
 | **Recover** | Panic dicatch tanpa bocor stack trace ke response |
 | **TLS verify** | ON by default di httpclient (`InsecureSkipVerify=false`, min TLS 1.2) |
-| **SSRF guard** | Allowlist host tujuan, tolak redirect ke internal/loopback/link-local |
+| **SSRF guard** | Allowlist host tujuan; tolak redirect ke internal/loopback/link-local; IP hasil DNS divalidasi dan di-dial langsung (anti DNS rebinding); `AllowPrivate` opt-in untuk target internal |
 | **JWT hardening** | Algo di-pin HS256, validasi `exp`/`iat`/`iss`/`aud`, `alg:none` ditolak, JTI per-token, `token_type` guard (refresh ditolak di endpoint API) |
 | **SQL injection** | GORM parameterized query — tidak ada raw string concat |
 | **Input validation** | `go-playground/validator` di semua DTO |

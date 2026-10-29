@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -37,6 +38,7 @@ func AuthorizationFromContext(ctx context.Context) string {
 type Options struct {
 	Timeout               time.Duration // HTTP request timeout (default 5s)
 	AllowedHosts          []string      // SSRF host allowlist; empty = block only internal addresses
+	AllowPrivate          bool          // permit loopback/private targets (self-hosted, monitors, tests); off by default
 	MaxResponseBytes      int64         // cap on response body size (default 10 MB)
 	MaxRetries            int           // retry attempts on 5xx/network timeout (default 3)
 	CBConsecutiveFailures uint32        // consecutive failures before circuit opens (default 5)
@@ -76,8 +78,10 @@ func applyDefaults(o Options) Options {
 //
 // Security posture (all ON by default, no opt-out):
 //   - TLS certificate verification enabled (InsecureSkipVerify=false, TLS 1.2+).
-//   - SSRF protection: loopback/private/link-local hosts are always blocked;
-//     an allowlist further restricts the set of reachable hosts.
+//   - SSRF protection: loopback/private/link-local hosts are blocked (allowlist
+//     further restricts hosts); resolved IPs are re-checked at dial time and
+//     dialled directly, so DNS rebinding cannot reach internal addresses.
+//     AllowPrivate opts in to internal targets (self-hosted, monitors).
 //   - Response body capped at MaxResponseBytes to prevent resource exhaustion.
 //   - Retry with exponential back-off on 5xx and network timeouts.
 //   - Circuit breaker opens after CBConsecutiveFailures consecutive failures.
@@ -100,7 +104,10 @@ func New(opts Options) *Client {
 		},
 	}
 
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	base := &http.Transport{
+		// Resolve once and dial the validated IP (DNS-rebinding safe).
+		DialContext: guardedDialContext(dialer, opts.AllowPrivate),
 		// TLS certificate verification is ON (InsecureSkipVerify defaults to false).
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
@@ -108,7 +115,7 @@ func New(opts Options) *Client {
 		MaxIdleConns:    100,
 		IdleConnTimeout: 90 * time.Second,
 	}
-	ssrf := &ssrfGuardTransport{inner: base, allowedHosts: opts.AllowedHosts}
+	ssrf := &ssrfGuardTransport{inner: base, allowedHosts: opts.AllowedHosts, allowPrivate: opts.AllowPrivate}
 	retry := &retryTransport{inner: ssrf, maxRetries: opts.MaxRetries, baseDelay: 500 * time.Millisecond}
 	cb := newCBTransport(retry, cbSettings)
 
@@ -121,7 +128,7 @@ func New(opts Options) *Client {
 	hc := &http.Client{
 		Transport:     finalTransport,
 		Timeout:       opts.Timeout,
-		CheckRedirect: ssrfCheckRedirect(opts.AllowedHosts),
+		CheckRedirect: ssrfCheckRedirect(opts.AllowedHosts, opts.AllowPrivate),
 	}
 	return &Client{http: hc, opts: opts}
 }
