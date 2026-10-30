@@ -111,3 +111,20 @@ func TestDomainTemplateContent_Missing(t *testing.T) {
 	_, err := DomainTemplateContent(fsys, "nonexistent.go.tmpl")
 	assert.Error(t, err)
 }
+
+func TestScaffold_ModuleContainingSkeletonPathIsNotDoubled(t *testing.T) {
+	fsys := buildTestFS()
+	target := filepath.Join(t.TempDir(), "app")
+
+	module := skeletonModule + "-myapp"
+	require.NoError(t, Scaffold(fsys, ScaffoldOptions{
+		ProjectName: "myapp",
+		Module:      module,
+		DB:          "postgres",
+	}, target))
+
+	data, err := os.ReadFile(filepath.Join(target, "pkg/logger/logger.go"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "module: "+module+"\n")
+	assert.NotContains(t, string(data), module+"-myapp")
+}

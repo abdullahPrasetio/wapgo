@@ -77,6 +77,15 @@ func (o ScaffoldOptions) skipPath(rel string) bool {
 	return false
 }
 
+// moduleSentinel marks the skeleton module inside templates. The literal is
+// replaced before the template runs, so a destination module that itself
+// contains the skeleton path is inserted once and never substituted again.
+const moduleSentinel = "\x00skeleton-module\x00"
+
+func expandModule(content, module string) string {
+	return strings.ReplaceAll(content, moduleSentinel, module)
+}
+
 // Scaffold copies the embedded skeleton to targetDir, substituting module path.
 // targetDir must not already exist.
 func Scaffold(fsys fs.FS, opts ScaffoldOptions, targetDir string) error {
@@ -141,6 +150,9 @@ func Scaffold(fsys fs.FS, opts ScaffoldOptions, targetDir string) error {
 		content := string(raw)
 
 		if strings.HasSuffix(path, ".tmpl") {
+			// Protect the skeleton module before templating so a destination
+			// module containing the skeleton path is not rewritten twice.
+			content = strings.ReplaceAll(content, skeletonModule, moduleSentinel)
 			// Process as template: [[ .Module ]], [[ .AppName ]], [[ .DB ]],
 			// [[ .APM ]], and the [[ if .Redis ]] / [[ if .Kafka ]] / [[ if .RabbitMQ ]] flags.
 			tmpl, err := template.New("").
@@ -154,14 +166,14 @@ func Scaffold(fsys fs.FS, opts ScaffoldOptions, targetDir string) error {
 			if terr := tmpl.Execute(&buf, data); terr != nil {
 				return fmt.Errorf("execute skeleton template %s: %w", path, terr)
 			}
-			rendered := strings.ReplaceAll(buf.String(), skeletonModule, opts.Module)
+			rendered := expandModule(buf.String(), opts.Module)
 
 			return WriteGeneratedFile(outPath, []byte(rendered))
 		}
 
 		// Plain file — replace the module path placeholder and drop the
 		// //go:build ignore guard that keeps skeleton files out of the CLI build.
-		content = strings.ReplaceAll(content, skeletonModule, opts.Module)
+		content = expandModule(strings.ReplaceAll(content, skeletonModule, moduleSentinel), opts.Module)
 		content = stripBuildIgnore(content)
 
 		return WriteGeneratedFile(outPath, []byte(content))
