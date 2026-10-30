@@ -18,7 +18,8 @@ db:
   sslmode: disable
 
 redis:
-  url: "redis://localhost:6379"
+  # Empty REDIS_URL disables Redis entirely (in-memory cache + token blacklist).
+  url: ""
   password: ""
   db: 0
 

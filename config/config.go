@@ -19,7 +19,22 @@ type Config struct {
 	JWT           JWTConfig           `mapstructure:"jwt"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
 	Health        HealthConfig        `mapstructure:"health"`
+	RateLimit     RateLimitConfig     `mapstructure:"rate_limit"`
 	Notification  NotificationConfig  `mapstructure:"notification"`
+}
+
+// RateLimitConfig controls the global per-IP rate limiter.
+//
+// Backend selects where the counters live:
+//   - "memory" (default) — per instance, resets on restart. With N replicas the
+//     effective quota is up to N × Max; use only for single-instance deployments.
+//   - "redis" — shared across replicas via REDIS_URL. Ignored (with a warning)
+//     when Redis is not configured.
+type RateLimitConfig struct {
+	Backend string `mapstructure:"backend"` // RATE_LIMIT_BACKEND: memory | redis
+	Max     int    `mapstructure:"max"`     // RATE_LIMIT_MAX     default 100
+	Window  string `mapstructure:"window"`  // RATE_LIMIT_WINDOW  Go duration, default "1m"
+	Prefix  string `mapstructure:"prefix"`  // RATE_LIMIT_PREFIX  Redis key namespace
 }
 
 // NotificationConfig groups optional notification add-on settings.
@@ -99,7 +114,7 @@ type DBConfig struct {
 }
 
 type RedisConfig struct {
-	URL          string `mapstructure:"url"`
+	URL          string `mapstructure:"url"` // REDIS_URL — empty disables Redis entirely
 	Password     string `mapstructure:"password"`
 	DB           int    `mapstructure:"db"`
 	PoolSize     int    `mapstructure:"pool_size"`      // REDIS_POOL_SIZE     default 20
@@ -108,6 +123,12 @@ type RedisConfig struct {
 	ReadTimeout  string `mapstructure:"read_timeout"`   // REDIS_READ_TIMEOUT   default "3s"
 	WriteTimeout string `mapstructure:"write_timeout"`  // REDIS_WRITE_TIMEOUT  default "3s"
 	MaxRetries   int    `mapstructure:"max_retries"`    // REDIS_MAX_RETRIES    default 3
+}
+
+// Enabled reports whether Redis is configured. An empty REDIS_URL means the
+// service runs without Redis using in-memory fallbacks.
+func (c RedisConfig) Enabled() bool {
+	return strings.TrimSpace(c.URL) != ""
 }
 
 type KafkaConfig struct {
@@ -141,6 +162,9 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	v := viper.New()
+	// Treat an explicitly empty env var (e.g. REDIS_URL=) as set, so optional
+	// dependencies can be disabled without editing config.yaml.
+	v.AllowEmptyEnv(true)
 
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
@@ -206,6 +230,10 @@ func Load() (*Config, error) {
 		"observability.tracing_enabled": "OTEL_TRACING_ENABLED",
 		"observability.otlp_endpoint":   "OTEL_EXPORTER_OTLP_ENDPOINT",
 		"health.probe_timeout":                      "HEALTH_PROBE_TIMEOUT",
+		"rate_limit.backend":                        "RATE_LIMIT_BACKEND",
+		"rate_limit.max":                            "RATE_LIMIT_MAX",
+		"rate_limit.window":                         "RATE_LIMIT_WINDOW",
+		"rate_limit.prefix":                         "RATE_LIMIT_PREFIX",
 		"notification.smtp.host":                    "SMTP_HOST",
 		"notification.smtp.port":                    "SMTP_PORT",
 		"notification.smtp.username":                "SMTP_USERNAME",
@@ -233,7 +261,7 @@ func Load() (*Config, error) {
 	v.SetDefault("db.conn_max_life", "5m")
 	v.SetDefault("db.auto_migrate", false)
 	v.SetDefault("db.sslmode", "disable")
-	v.SetDefault("redis.url", "redis://localhost:6379")
+	v.SetDefault("redis.url", "") // optional: empty disables Redis (in-memory fallbacks)
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("redis.pool_size", 20)
 	v.SetDefault("redis.min_idle_conns", 5)
@@ -258,6 +286,10 @@ func Load() (*Config, error) {
 	v.SetDefault("observability.provider", "elastic_apm")
 	v.SetDefault("observability.tracing_enabled", false)
 	v.SetDefault("health.probe_timeout", "2s")
+	v.SetDefault("rate_limit.backend", "memory")
+	v.SetDefault("rate_limit.max", 100)
+	v.SetDefault("rate_limit.window", "1m")
+	v.SetDefault("rate_limit.prefix", "wapgo:rl")
 	v.SetDefault("notification.smtp.port", 587)
 	v.SetDefault("notification.smtp.timeout", "10s")
 	v.SetDefault("kafka.heartbeat_interval", "3s")

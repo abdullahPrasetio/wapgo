@@ -67,3 +67,37 @@ func TestLoad_ServiceURLs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "http://my-user-svc:8080", cfg.Services.UserURL)
 }
+
+func TestLoad_RedisDisabledByDefault(t *testing.T) {
+	t.Setenv("REDIS_URL", "")
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.Redis.Enabled(), "empty REDIS_URL must disable Redis")
+}
+
+func TestLoad_RedisEnabledFromEnv(t *testing.T) {
+	t.Setenv("REDIS_URL", "redis://cache:6379/1")
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.Redis.Enabled())
+	assert.Equal(t, "redis://cache:6379/1", cfg.Redis.URL)
+}
+
+func TestLoad_RateLimitDefaults(t *testing.T) {
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "memory", cfg.RateLimit.Backend)
+	assert.Equal(t, 100, cfg.RateLimit.Max)
+	assert.Equal(t, "1m", cfg.RateLimit.Window)
+}
+
+func TestLoad_RateLimitEnvOverride(t *testing.T) {
+	t.Setenv("RATE_LIMIT_BACKEND", "redis")
+	t.Setenv("RATE_LIMIT_MAX", "250")
+	t.Setenv("RATE_LIMIT_WINDOW", "30s")
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "redis", cfg.RateLimit.Backend)
+	assert.Equal(t, 250, cfg.RateLimit.Max)
+	assert.Equal(t, "30s", cfg.RateLimit.Window)
+}

@@ -32,7 +32,9 @@ import (
 	mw "github.com/abdullahPrasetio/wapgo/internal/delivery/http/middleware"
 	"github.com/abdullahPrasetio/wapgo/internal/delivery/http/route"
 	"github.com/abdullahPrasetio/wapgo/internal/domain/entity"
+	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
 	dbrepo "github.com/abdullahPrasetio/wapgo/internal/repository/db"
+	memoryrepo "github.com/abdullahPrasetio/wapgo/internal/repository/memory"
 	redisrepo "github.com/abdullahPrasetio/wapgo/internal/repository/redis"
 	"github.com/abdullahPrasetio/wapgo/internal/usecase"
 	"github.com/abdullahPrasetio/wapgo/pkg/auth"
@@ -41,6 +43,7 @@ import (
 	kafkamsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/kafka"
 	rabbitmqmsg "github.com/abdullahPrasetio/wapgo/pkg/messaging/rabbitmq"
 	"github.com/abdullahPrasetio/wapgo/pkg/observability"
+	"github.com/abdullahPrasetio/wapgo/pkg/ratelimit"
 	"github.com/abdullahPrasetio/wapgo/pkg/validator"
 )
 
@@ -97,14 +100,28 @@ func main() {
 		log.Info().Msg("auto-migrate complete")
 	}
 
-	// ── Redis ────────────────────────────────────────────────────────────────
-	redisClient := newRedisClient(&cfg.Redis)
-	obsProvider.InstrumentRedis(redisClient)
-	log.Info().Msg("redis connected")
+	// ── Redis (optional) ─────────────────────────────────────────────────────
+	// Redis is an optimisation, not a requirement. Without REDIS_URL the service
+	// uses in-process fallbacks; token revocation then only covers this process.
+	var redisClient *redis.Client
+	var cacher domainrepo.Cacher
+	var blacklist auth.Blacklist
+	redisEnabled := cfg.Redis.Enabled()
+	if redisEnabled {
+		redisClient = newRedisClient(&cfg.Redis)
+		obsProvider.InstrumentRedis(redisClient)
+		cacher = redisrepo.New(redisClient, "wapgo")
+		blacklist = auth.NewRedisBlacklist(redisClient)
+		log.Info().Msg("redis enabled: cache and token revocation are shared")
+	} else {
+		cacher = memoryrepo.New("wapgo")
+		blacklist = auth.NewMemoryBlacklist()
+		log.Warn().Msg("REDIS_URL is empty: using in-memory cache and token blacklist; " +
+			"token revocation and refresh sessions are instance-local and lost on restart")
+	}
 
 	// ── Repositories ─────────────────────────────────────────────────────────
 	userRepo := dbrepo.NewUserRepository(db)
-	cacher := redisrepo.New(redisClient, "wapgo")
 
 	// ── Auth ─────────────────────────────────────────────────────────────────
 	jwtExpiry, err := time.ParseDuration(cfg.JWT.Expiry)
@@ -121,7 +138,6 @@ func main() {
 		Audience: cfg.JWT.Audience,
 		Expiry:   jwtExpiry,
 	}
-	blacklist := auth.NewRedisBlacklist(redisClient)
 
 	bcryptCost := cfg.App.BcryptCost
 	if bcryptCost < 10 {
@@ -138,7 +154,17 @@ func main() {
 	userHandler := handler.NewUserHandler(userUC, val)
 	authHandler := handler.NewAuthHandler(authUC, val, cfg.App.Env)
 	probeTimeout, _ := time.ParseDuration(cfg.Health.ProbeTimeout)
-	healthHandler := handler.NewHealthHandler(sqlDB, redisClient, startTime, version, probeTimeout)
+	healthHandler := handler.NewHealthHandler(sqlDB, startTime, version, probeTimeout)
+	if redisEnabled {
+		healthHandler.AddChecker("redis", func(ctx context.Context) string {
+			pingCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+			defer cancel()
+			if err := redisClient.Ping(pingCtx).Err(); err != nil {
+				return "down"
+			}
+			return "ok"
+		})
+	}
 
 	if cfg.Kafka.Brokers != "" {
 		healthHandler.AddChecker("kafka", kafkamsg.HealthCheck(cfg.Kafka.Brokers))
@@ -149,6 +175,29 @@ func main() {
 		healthHandler.AddChecker("rabbitmq", rabbitmqmsg.HealthCheck(cfg.RabbitMQ.DSN))
 	} else {
 		healthHandler.AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
+	}
+
+	// ── Rate limiter ─────────────────────────────────────────────────────────
+	// Memory is the safe default: per-instance, no external dependency. Redis
+	// shares one quota across replicas; without REDIS_URL we degrade to memory.
+	rlWindow, err := time.ParseDuration(cfg.RateLimit.Window)
+	if err != nil || rlWindow <= 0 {
+		rlWindow = time.Minute
+	}
+	var globalLimiter ratelimit.Limiter
+	if cfg.RateLimit.Backend == "redis" {
+		if redisEnabled {
+			globalLimiter = ratelimit.NewRedis(redisClient, cfg.RateLimit.Prefix, cfg.RateLimit.Max, rlWindow)
+			log.Info().Str("backend", "redis").Int("max", cfg.RateLimit.Max).
+				Dur("window", rlWindow).Msg("shared rate limiting enabled")
+		} else {
+			log.Warn().Msg("RATE_LIMIT_BACKEND=redis requires REDIS_URL; falling back to per-instance in-memory rate limiting")
+		}
+	}
+	if globalLimiter == nil {
+		globalLimiter = ratelimit.NewMemory(cfg.RateLimit.Max, rlWindow)
+		log.Info().Str("backend", "memory").Int("max", cfg.RateLimit.Max).
+			Dur("window", rlWindow).Msg("rate limiting is per-instance (not shared across replicas)")
 	}
 
 	// ── Fiber app ────────────────────────────────────────────────────────────
@@ -179,7 +228,7 @@ func main() {
 	app.Use(mw.Recover())
 	app.Use(mw.RequestID())
 	app.Use(mw.SecurityHeaders())
-	app.Use(mw.RateLimiter())
+	app.Use(mw.RateLimiterWith(globalLimiter))
 	app.Use(mw.RequestLogger())
 	app.Use(mw.CORS(cfg.App.CORSAllowedOrigins))
 	app.Use(obsProvider.HTTPMiddleware())
@@ -213,8 +262,10 @@ func main() {
 	if err := obsProvider.Shutdown(shutCtx); err != nil {
 		log.Error().Err(err).Msg("observability provider shutdown error")
 	}
-	if err := redisClient.Close(); err != nil {
-		log.Error().Err(err).Msg("redis close error")
+	if redisClient != nil {
+		if err := redisClient.Close(); err != nil {
+			log.Error().Err(err).Msg("redis close error")
+		}
 	}
 	if err := sqlDB.Close(); err != nil {
 		log.Error().Err(err).Msg("database close error")

@@ -1,0 +1,28 @@
+package ratelimit
+
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+func TestMemoryLimiter_BlocksOverQuota(t *testing.T) {
+	now := time.Now()
+	m := NewMemory(2, time.Minute)
+	m.now = func() time.Time { return now }
+
+	ctx := context.Background()
+	for range 2 {
+		if res, err := m.Allow(ctx, "1.2.3.4"); err != nil || !res.Allowed {
+			t.Fatalf("expected allowed, got res=%+v err=%v", res, err)
+		}
+	}
+	if res, _ := m.Allow(ctx, "1.2.3.4"); res.Allowed {
+		t.Fatal("expected third request to be blocked")
+	}
+
+	now = now.Add(61 * time.Second)
+	if res, _ := m.Allow(ctx, "1.2.3.4"); !res.Allowed {
+		t.Fatal("expected allowed after window reset")
+	}
+}

@@ -22,14 +22,16 @@ type feature struct {
 var features = map[string]feature{
 	"redis": {
 		name:    "redis",
-		subdirs: []string{"internal/repository/redis"},
-		summary: "Redis cache layer (RedisCacher implementing the domain Cacher)",
+		subdirs: []string{"internal/repository/redis", "pkg/ratelimit"},
+		summary: "Redis cache layer (RedisCacher + shared rate limiter)",
 		steps: []string{
-			"Wire it in cmd/api/main.go:",
+			"Set REDIS_URL in .env (empty keeps the in-process cache fallback)",
+			"Wire the shared cache in cmd/api/main.go:",
 			"    redisClient := newRedisClient(&cfg.Redis)",
-			"    cache := redisrepo.NewRedisCacher(redisClient)",
-			"Add REDIS_URL / REDIS_PASSWORD / REDIS_DB to your .env",
+			"    cacher = redisrepo.New(redisClient, \"app\")",
+			"Optional shared rate limiting: RATE_LIMIT_BACKEND=redis",
 			"Add a redis service to docker-compose.yml (see the wapgo docs)",
+			"Shared token revocation (auth.RedisBlacklist) ships with projects generated using --redis",
 		},
 	},
 	"kafka": {

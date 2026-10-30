@@ -2,11 +2,22 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
+// ErrCacheMiss is returned by Cacher.Get when the requested key does not exist
+// (or has expired). Callers should fall back to their source of truth.
+var ErrCacheMiss = errors.New("cache miss")
+
 // Cacher defines cache operations that usecases depend on.
-// Implementation lives in internal/repository/redis/.
+//
+// The cache is an optimisation, never a source of truth. Get MUST return
+// ErrCacheMiss (not a transport error) when the backend is unavailable so that
+// callers can degrade to the database without failing the request.
+//
+// Implementations: internal/repository/redis (shared) and
+// internal/repository/memory (in-process fallback when Redis is not configured).
 type Cacher interface {
 	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
 	Get(ctx context.Context, key string, dest interface{}) error

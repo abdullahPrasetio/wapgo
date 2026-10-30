@@ -8,9 +8,13 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
+
+	"github.com/abdullahPrasetio/wapgo/internal/domain/repository"
 )
 
-var ErrCacheMiss = errors.New("cache miss")
+// ErrCacheMiss is the shared sentinel defined by the Cacher interface.
+var ErrCacheMiss = repository.ErrCacheMiss
 
 // RedisCacher implements repository.Cacher using a Redis client.
 type RedisCacher struct {
@@ -37,13 +41,16 @@ func (r *RedisCacher) Set(ctx context.Context, key string, value interface{}, tt
 	return r.client.Set(ctx, r.prefixed(key), b, ttl).Err()
 }
 
+// Get returns ErrCacheMiss when the key is absent OR Redis is unavailable,
+// so callers can degrade to the database instead of failing the request.
 func (r *RedisCacher) Get(ctx context.Context, key string, dest interface{}) error {
 	b, err := r.client.Get(ctx, r.prefixed(key)).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return ErrCacheMiss
 	}
 	if err != nil {
-		return fmt.Errorf("cache get: %w", err)
+		log.Warn().Err(err).Str("key", r.prefixed(key)).Msg("redis get failed, degrading to cache miss")
+		return ErrCacheMiss
 	}
 	if err := json.Unmarshal(b, dest); err != nil {
 		return fmt.Errorf("cache get unmarshal: %w", err)

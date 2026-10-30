@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Redis is optional** — the API now starts and serves traffic with `REDIS_URL` empty.
+  New `repository.Cacher` fallback (`internal/repository/memory`, TTL + JSON semantics) and
+  `auth.MemoryBlacklist` keep cache, refresh sessions, password-reset tokens and logout
+  revocation working for the life of the process. Startup logs a warning that revocation is
+  instance-local; `/health` omits Redis when it is not configured.
+- **`pkg/ratelimit`** — `Limiter` interface with `MemoryLimiter` (fixed window, per instance)
+  and `RedisLimiter` (shared quota across replicas). `RATE_LIMIT_BACKEND=memory|redis`,
+  `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW`, `RATE_LIMIT_PREFIX`. The middleware fails open when
+  the shared backend is unreachable.
+- **`wapgo new` skeleton** — inherits optional Redis (`internal/repository/memory`,
+  `pkg/auth/blacklist.go`, `pkg/ratelimit`), conditionally keeps the Redis implementation
+  with `--redis`, and health reports Redis only when configured.
+
+### Changed
+- `repository.ErrCacheMiss` is now the canonical sentinel (the Redis package aliases it),
+  so usecases no longer import the Redis implementation to detect a cache miss.
+- `handler.NewHealthHandler(db, startTime, version, probeTimeout)` no longer takes a Redis
+  client; optional dependencies are registered with `AddChecker`.
+- `config.Load()` treats explicitly empty env vars as set (`AllowEmptyEnv`), so `REDIS_URL=`
+  disables Redis even when `config/config.yaml` defines a URL. Default `REDIS_URL` is empty.
+
+### Fixed
+- API no longer logs reconnect/noise or reports `redis: down` in `/health` when Redis is
+  intentionally not deployed.
+
 ## [1.7.0] — 2026-06-15
 
 ### Added

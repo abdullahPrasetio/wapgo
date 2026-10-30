@@ -1,0 +1,51 @@
+package memory
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/abdullahPrasetio/wapgo/internal/domain/repository"
+)
+
+func TestCacher_SetGetDel(t *testing.T) {
+	c := New("test")
+	ctx := context.Background()
+
+	type value struct{ Name string }
+	if err := c.Set(ctx, "k", value{Name: "alice"}, time.Minute); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	var got value
+	if err := c.Get(ctx, "k", &got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Name != "alice" {
+		t.Fatalf("got %q, want alice", got.Name)
+	}
+
+	if err := c.Del(ctx, "k"); err != nil {
+		t.Fatalf("Del: %v", err)
+	}
+	if err := c.Get(ctx, "k", &got); err != repository.ErrCacheMiss {
+		t.Fatalf("got %v, want ErrCacheMiss", err)
+	}
+}
+
+func TestCacher_TTLExpiry(t *testing.T) {
+	now := time.Now()
+	c := New("")
+	c.now = func() time.Time { return now }
+	ctx := context.Background()
+
+	if err := c.Set(ctx, "k", "v", time.Nanosecond); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	now = now.Add(time.Second)
+
+	var got string
+	if err := c.Get(ctx, "k", &got); err != repository.ErrCacheMiss {
+		t.Fatalf("got %v, want ErrCacheMiss after expiry", err)
+	}
+}

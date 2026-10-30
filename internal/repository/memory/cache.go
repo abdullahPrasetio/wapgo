@@ -1,0 +1,127 @@
+// Package memory provides an in-process Cacher used when Redis is not configured.
+//
+// State is local to the process: it is lost on restart and never shared between
+// replicas. It exists so that a single-instance deployment works without Redis.
+package memory
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
+
+	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
+)
+
+// sweepThreshold bounds memory usage for high-cardinality key spaces: once the
+// map grows past it, expired entries are purged on the next write.
+const sweepThreshold = 1024
+
+type entry struct {
+	data      []byte
+	expiresAt time.Time // zero = no expiry
+}
+
+// Cacher implements repository.Cacher in process memory.
+// It is safe for concurrent use.
+type Cacher struct {
+	mu  sync.RWMutex
+	ns  string
+	now func() time.Time
+	m   map[string]entry
+}
+
+// New creates an in-memory Cacher. ns prefixes every key ("ns:key"); pass "" for no prefix.
+func New(ns string) *Cacher {
+	return &Cacher{ns: ns, now: time.Now, m: make(map[string]entry)}
+}
+
+func (c *Cacher) prefixed(key string) string {
+	if c.ns == "" {
+		return key
+	}
+	return c.ns + ":" + key
+}
+
+// Set JSON-marshals value and stores it with the given TTL (0 = no expiry).
+func (c *Cacher) Set(_ context.Context, key string, value interface{}, ttl time.Duration) error {
+	b, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("cache set marshal: %w", err)
+	}
+	e := entry{data: b}
+	if ttl > 0 {
+		e.expiresAt = c.now().Add(ttl)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.m) >= sweepThreshold {
+		c.sweepLocked()
+	}
+	c.m[c.prefixed(key)] = e
+	return nil
+}
+
+// Get retrieves the key and JSON-unmarshals the value into dest.
+// Returns repository.ErrCacheMiss when the key is absent or expired.
+func (c *Cacher) Get(_ context.Context, key string, dest interface{}) error {
+	full := c.prefixed(key)
+
+	c.mu.RLock()
+	e, ok := c.m[full]
+	c.mu.RUnlock()
+	if !ok {
+		return domainrepo.ErrCacheMiss
+	}
+	if !e.expiresAt.IsZero() && !c.now().Before(e.expiresAt) {
+		c.mu.Lock()
+		delete(c.m, full)
+		c.mu.Unlock()
+		return domainrepo.ErrCacheMiss
+	}
+	if err := json.Unmarshal(e.data, dest); err != nil {
+		return fmt.Errorf("cache get unmarshal: %w", err)
+	}
+	return nil
+}
+
+// Del removes one or more keys from the cache.
+func (c *Cacher) Del(_ context.Context, keys ...string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, k := range keys {
+		delete(c.m, c.prefixed(k))
+	}
+	return nil
+}
+
+// Exists reports whether the key is present and not expired.
+func (c *Cacher) Exists(_ context.Context, key string) (bool, error) {
+	full := c.prefixed(key)
+
+	c.mu.RLock()
+	e, ok := c.m[full]
+	c.mu.RUnlock()
+	if !ok {
+		return false, nil
+	}
+	if !e.expiresAt.IsZero() && !c.now().Before(e.expiresAt) {
+		c.mu.Lock()
+		delete(c.m, full)
+		c.mu.Unlock()
+		return false, nil
+	}
+	return true, nil
+}
+
+// sweepLocked drops expired entries. Caller must hold c.mu.
+func (c *Cacher) sweepLocked() {
+	now := c.now()
+	for k, e := range c.m {
+		if !e.expiresAt.IsZero() && !now.Before(e.expiresAt) {
+			delete(c.m, k)
+		}
+	}
+}
