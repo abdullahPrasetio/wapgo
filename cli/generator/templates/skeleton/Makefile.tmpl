@@ -1,10 +1,19 @@
-.PHONY: run build test lint docker-up docker-down coverage tidy sec migrate migrate-down migrate-version migrate-force
+.PHONY: run build test lint docker-up docker-down coverage tidy sec migrate migrate-down migrate-version migrate-force[[ if eq .DB "postgres" ]] run-worker build-worker[[ end ]]
 
 run:
 	go run cmd/api/main.go
 
 build:
 	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/api cmd/api/main.go
+[[- if eq .DB "postgres" ]]
+
+# Postgres job queue worker (FOR UPDATE SKIP LOCKED). Requires `make migrate`.
+run-worker:
+	go run ./cmd/worker
+
+build-worker:
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/worker ./cmd/worker
+[[- end ]]
 
 test:
 	go test -race ./...

@@ -37,7 +37,7 @@ Thumbs.db
 tmp/
 
 # Claude Code memory (local-only)
-memory/
+/memory/
 
 # Local scaffold test outputs (wapgo new ...)
 shop/

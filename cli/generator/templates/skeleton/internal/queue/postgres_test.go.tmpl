@@ -1,0 +1,30 @@
+package queue
+
+import (
+	"testing"
+	"time"
+)
+
+func TestRetryDelay_ExponentialAndCapped(t *testing.T) {
+	q := NewPostgresQueue(nil, Options{
+		RetryBase: 5 * time.Second,
+		RetryMax:  40 * time.Second,
+	})
+
+	cases := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{1, 5 * time.Second},
+		{2, 10 * time.Second},
+		{3, 20 * time.Second},
+		{4, 40 * time.Second},
+		{5, 40 * time.Second},
+		{10, 40 * time.Second},
+	}
+	for _, tc := range cases {
+		if got := q.retryDelay(tc.attempt); got != tc.want {
+			t.Errorf("retryDelay(%d) = %v, want %v", tc.attempt, got, tc.want)
+		}
+	}
+}

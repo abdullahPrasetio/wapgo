@@ -131,7 +131,7 @@ wapgo version
 - **JWT auth** — HS256, pinned algorithm, validates `exp/iat/iss/aud`, `alg:none` rejected, secret ≥ 32 bytes. `auth.Sign()` returns `(token, jti, error)`.
 - **Token type claim** — `token_type` claim (`"access"` | `"refresh"`) embedded in every JWT; middleware automatically rejects refresh tokens used as Bearer access tokens.
 - **RBAC** — `auth.RequireRole("admin")` middleware.
-- **Token blacklist** — `auth.NewRedisBlacklist(client, prefix)` for JTI revocation; used by logout to invalidate both access and refresh JTIs.
+- **Token blacklist** — `auth.Blacklist` interface: `auth.NewRedisBlacklist(client)` when Redis is configured, `auth.NewMemoryBlacklist()` otherwise. Logout revokes both access and refresh JTIs.
 
 ### Full Auth Flow (v1.2)
 - **`POST /api/v1/auth/login`** — bcrypt verify → issue access + refresh JWT pair; refresh session stored in Redis.
@@ -180,13 +180,17 @@ All settings are read from ENV (highest priority) → `config/config.yaml` → d
 | `JWT_SECRET` | — | **Required, min 32 bytes** |
 | `JWT_EXPIRY` | `24h` | Go duration string |
 | `OBSERVABILITY_PROVIDER` | `elastic_apm` | `otel`, `elastic_apm`, or `none` |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
+| `REDIS_URL` | *(empty)* | Optional. Empty disables Redis — the service runs with an in-process cache + token blacklist (revocation is instance-local). |
 | `REDIS_POOL_SIZE` | `20` | Max connections in pool |
 | `REDIS_MIN_IDLE_CONNS` | `5` | Min idle connections kept warm |
 | `REDIS_DIAL_TIMEOUT` | `5s` | Connection open timeout |
 | `REDIS_READ_TIMEOUT` | `3s` | Per-command read timeout |
 | `REDIS_WRITE_TIMEOUT` | `3s` | Per-command write timeout |
 | `REDIS_MAX_RETRIES` | `3` | Automatic retry count |
+| `RATE_LIMIT_BACKEND` | `memory` | `memory` (per instance) or `redis` (shared quota across replicas) |
+| `RATE_LIMIT_MAX` | `100` | Requests per window per client IP |
+| `RATE_LIMIT_WINDOW` | `1m` | Go duration string |
+| `RATE_LIMIT_PREFIX` | `wapgo:rl` | Redis key namespace for shared counters |
 | `KAFKA_BROKERS` | — | Comma-separated `host:port` |
 | `RABBITMQ_DSN` | — | `amqp://user:pass@host:5672/vhost` |
 | `RABBITMQ_EXCHANGE` | `{app-name}-exchange` | Topic exchange name |
@@ -195,6 +199,29 @@ All settings are read from ENV (highest priority) → `config/config.yaml` → d
 | `LOG_MAX_AGE_DAYS` | `30` | Retention in days for log files |
 | `LOG_HTTP_BODIES` | `false` | Capture full request/response bodies in `api.log` |
 | `LOG_BODY_MAX_BYTES` | `8192` | Maximum body size captured (bytes) |
+
+### Redis is optional
+
+With `REDIS_URL` empty (the default) the service starts normally and uses:
+
+- an in-process JSON cache (`internal/repository/memory`) instead of `RedisCacher`;
+- an in-process token blacklist (`auth.NewMemoryBlacklist`) instead of `auth.RedisBlacklist`.
+
+Refresh sessions, password-reset tokens and revoked tokens therefore live only in the
+running process: they are **not shared between replicas and are lost on restart**. The API
+logs a warning at startup (`REDIS_URL is empty: ... instance-local ...`). Set `REDIS_URL`
+for multi-instance deployments. When Redis is disabled it does not appear in `/health`.
+
+### Rate limiting
+
+The global per-IP limiter defaults to `RATE_LIMIT_BACKEND=memory`: a fixed window counted
+in process memory. It is **per instance** — with N replicas behind a load balancer each
+replica enforces its own quota (effective limit up to N × `RATE_LIMIT_MAX`) and counters
+reset on restart. This is fine for a single instance and needs no infrastructure.
+
+Set `RATE_LIMIT_BACKEND=redis` (together with `REDIS_URL`) to share one quota across
+replicas. If Redis is unreachable the middleware fails open (logs a warning and allows the
+request) so a cache outage cannot take the API down.
 
 ### Observability — `OBSERVABILITY_PROVIDER=otel`
 

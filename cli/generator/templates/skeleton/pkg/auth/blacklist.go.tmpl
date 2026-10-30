@@ -1,0 +1,115 @@
+package auth
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+[[- if .Redis ]]
+
+	"github.com/redis/go-redis/v9"
+[[- end ]]
+)
+
+// Blacklist defines token revocation storage for logout/refresh rotation.
+//
+// Implementations must be safe for concurrent use. MemoryBlacklist is the
+// fallback when Redis is not configured: revocation then only applies to the
+// current process and is lost on restart.
+type Blacklist interface {
+	// Revoke stores the JTI (jwt.ID) until the token's natural expiry.
+	Revoke(ctx context.Context, jti string, ttl time.Duration) error
+	// IsRevoked returns true when the JTI has been revoked.
+	IsRevoked(ctx context.Context, jti string) (bool, error)
+}
+
+// MemoryBlacklist stores revoked JTIs in process memory.
+// It is the fallback used when Redis is not configured: a revoked token is still
+// accepted by other replicas and after a restart.
+type MemoryBlacklist struct {
+	mu  sync.Mutex
+	now func() time.Time
+	m   map[string]time.Time // jti → expiry
+}
+
+// NewMemoryBlacklist creates an empty in-memory blacklist.
+func NewMemoryBlacklist() *MemoryBlacklist {
+	return &MemoryBlacklist{now: time.Now, m: make(map[string]time.Time)}
+}
+
+// Revoke marks a JTI as revoked for the given duration.
+func (b *MemoryBlacklist) Revoke(_ context.Context, jti string, ttl time.Duration) error {
+	if jti == "" {
+		return fmt.Errorf("revoke: empty jti")
+	}
+	now := b.now()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.m) >= 1024 {
+		for k, exp := range b.m {
+			if !now.Before(exp) {
+				delete(b.m, k)
+			}
+		}
+	}
+	b.m[jti] = now.Add(ttl)
+	return nil
+}
+
+// IsRevoked reports whether the JTI is currently revoked.
+func (b *MemoryBlacklist) IsRevoked(_ context.Context, jti string) (bool, error) {
+	if jti == "" {
+		return false, nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	exp, ok := b.m[jti]
+	if !ok {
+		return false, nil
+	}
+	if !b.now().Before(exp) {
+		delete(b.m, jti)
+		return false, nil
+	}
+	return true, nil
+}
+[[- if .Redis ]]
+
+const blacklistKeyPrefix = "jwt:bl:"
+
+// RedisBlacklist stores revoked JTIs in Redis. Keys carry a TTL equal to the
+// remaining token lifetime, so they are cleaned up automatically.
+type RedisBlacklist struct {
+	client *redis.Client
+}
+
+// NewRedisBlacklist creates a RedisBlacklist backed by the given Redis client.
+func NewRedisBlacklist(client *redis.Client) *RedisBlacklist {
+	return &RedisBlacklist{client: client}
+}
+
+// Revoke marks a JTI as revoked for the given duration.
+func (b *RedisBlacklist) Revoke(ctx context.Context, jti string, ttl time.Duration) error {
+	if jti == "" {
+		return fmt.Errorf("revoke: empty jti")
+	}
+	if err := b.client.Set(ctx, blacklistKeyPrefix+jti, 1, ttl).Err(); err != nil {
+		return fmt.Errorf("revoke token: %w", err)
+	}
+	return nil
+}
+
+// IsRevoked reports whether the JTI exists in the blacklist.
+func (b *RedisBlacklist) IsRevoked(ctx context.Context, jti string) (bool, error) {
+	if jti == "" {
+		return false, nil
+	}
+	n, err := b.client.Exists(ctx, blacklistKeyPrefix+jti).Result()
+	if err != nil {
+		return false, fmt.Errorf("blacklist check: %w", err)
+	}
+	return n > 0, nil
+}
+[[- end ]]

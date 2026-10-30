@@ -1,0 +1,89 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/rs/zerolog/log"
+
+	"[[.Module]]/config"
+	"[[.Module]]/internal/queue"
+	"[[.Module]]/pkg/database"
+	applogger "[[.Module]]/pkg/logger"
+)
+
+const version = "0.1.0"
+
+// Worker drains the Postgres jobs table (migrations/000002_jobs.up.sql).
+// Jobs are claimed with FOR UPDATE SKIP LOCKED, so replicas scale horizontally.
+func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load config")
+	}
+
+	applogger.Setup(cfg.App.Env, cfg.Log.Level, cfg.Log.FilePath, cfg.Log.ToFile, cfg.App.Name)
+	if err := applogger.SetupSinks(applogger.SinkConfig{
+		Dir:        cfg.Log.Dir,
+		Rotation:   cfg.Log.Rotation,
+		MaxAgeDays: cfg.Log.MaxAgeDays,
+		Console:    cfg.App.Env != "production",
+	}); err != nil {
+		log.Fatal().Err(err).Msg("failed to setup log sinks")
+	}
+
+	db, err := database.NewConnection(&cfg.DB)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to connect to database")
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to get underlying sql.DB")
+	}
+
+	opts := queue.Options{
+		PollInterval:      parseDuration(cfg.Worker.PollInterval, 2*time.Second),
+		RetryBase:         parseDuration(cfg.Worker.RetryBase, 5*time.Second),
+		RetryMax:          parseDuration(cfg.Worker.RetryMax, 10*time.Minute),
+		VisibilityTimeout: parseDuration(cfg.Worker.VisibilityTimeout, 5*time.Minute),
+		MaxAttempts:       cfg.Worker.MaxAttempts,
+	}
+	q := queue.NewPostgresQueue(sqlDB, opts)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Register one handler per job kind. Enqueue jobs with:
+	//   q.Enqueue(ctx, "example", payload, time.Time{})
+	handlers := map[string]queue.Handler{
+		"example": func(_ context.Context, job *queue.Job) error {
+			log.Info().Int64("job_id", job.ID).Str("payload", string(job.Payload)).Msg("processing job")
+			return nil
+		},
+	}
+
+	log.Info().Str("version", version).Str("env", cfg.App.Env).
+		Int("workers", cfg.Worker.Concurrency).Msg("worker started — waiting for jobs")
+
+	if err := q.Run(ctx, cfg.Worker.Concurrency, handlers); err != nil && !errors.Is(err, context.Canceled) {
+		log.Error().Err(err).Msg("worker stopped")
+	}
+	log.Info().Msg("worker draining complete")
+
+	if err := sqlDB.Close(); err != nil {
+		log.Error().Err(err).Msg("database close error")
+	}
+	log.Info().Msg("shutdown complete")
+}
+
+func parseDuration(raw string, fallback time.Duration) time.Duration {
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}

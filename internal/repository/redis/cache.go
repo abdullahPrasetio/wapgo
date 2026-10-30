@@ -9,10 +9,14 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
+
+	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
 )
 
 // ErrCacheMiss is returned when the requested key does not exist.
-var ErrCacheMiss = errors.New("cache miss")
+// It is the shared sentinel defined by the Cacher interface so usecases do not
+// depend on this package.
+var ErrCacheMiss = domainrepo.ErrCacheMiss
 
 // RedisCacher implements repository.Cacher using a Redis client.
 type RedisCacher struct {

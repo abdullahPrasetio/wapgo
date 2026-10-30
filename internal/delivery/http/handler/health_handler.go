@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/redis/go-redis/v9"
 )
 
 // Checker is a health probe function.
@@ -14,25 +13,26 @@ import (
 type Checker func(ctx context.Context) string
 
 // HealthHandler checks the liveness of downstream dependencies.
+// The database is always required; optional dependencies (Redis, Kafka, RabbitMQ)
+// are registered via AddChecker only when they are configured, so a disabled
+// dependency never appears in the response.
 type HealthHandler struct {
 	db           *sql.DB
-	redisClient  *redis.Client
-	extras       map[string]Checker // additional probes (kafka, rabbitmq, …)
+	extras       map[string]Checker // additional probes (redis, kafka, rabbitmq, …)
 	startTime    time.Time
 	version      string
 	probeTimeout time.Duration
 }
 
-// NewHealthHandler creates a HealthHandler with DB and Redis probes.
+// NewHealthHandler creates a HealthHandler with the mandatory database probe.
 // probeTimeout sets the per-dependency ping budget (0 → defaults to 2s).
 // Additional probes can be registered afterwards via AddChecker.
-func NewHealthHandler(db *sql.DB, rc *redis.Client, startTime time.Time, version string, probeTimeout time.Duration) *HealthHandler {
+func NewHealthHandler(db *sql.DB, startTime time.Time, version string, probeTimeout time.Duration) *HealthHandler {
 	if probeTimeout <= 0 {
 		probeTimeout = 2 * time.Second
 	}
 	return &HealthHandler{
 		db:           db,
-		redisClient:  rc,
 		startTime:    startTime,
 		version:      version,
 		probeTimeout: probeTimeout,
@@ -50,7 +50,7 @@ func (h *HealthHandler) AddChecker(name string, fn Checker) *HealthHandler {
 
 // Check godoc
 // @Summary      Health check
-// @Description  Returns status of all downstream dependencies (DB, Redis, Kafka, RabbitMQ).
+// @Description  Returns status of all downstream dependencies (DB plus any configured optional dependency).
 // @Tags         system
 // @Produce      json
 // @Success      200  {object}  map[string]interface{}
@@ -72,18 +72,7 @@ func (h *HealthHandler) Check(c *fiber.Ctx) error {
 		services["database"] = "ok"
 	}
 
-	// Redis ping
-	redisCtx, redisCancel := context.WithTimeout(c.UserContext(), h.probeTimeout)
-	defer redisCancel()
-	if err := h.redisClient.Ping(redisCtx).Err(); err != nil {
-		services["redis"] = "down"
-		overall = "degraded"
-		httpCode = fiber.StatusServiceUnavailable
-	} else {
-		services["redis"] = "ok"
-	}
-
-	// Extra probes (kafka, rabbitmq, …)
+	// Extra probes (redis, kafka, rabbitmq, …) — only registered when configured.
 	for name, check := range h.extras {
 		result := check(c.UserContext())
 		services[name] = result

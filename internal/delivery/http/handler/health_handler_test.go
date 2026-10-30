@@ -9,7 +9,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	_ "github.com/jackc/pgx/v5/stdlib" // register "pgx" driver
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -22,7 +21,7 @@ func newHealthApp(h *handler.HealthHandler) *fiber.App {
 	return app
 }
 
-// openBrokenDB/RC open connections to ports guaranteed to refuse connections.
+// openBrokenDB opens a connection to a port guaranteed to refuse connections.
 func openBrokenDB(port string) *sql.DB {
 	db, _ := sql.Open("pgx",
 		"postgresql://user:pass@127.0.0.1:"+port+"/test?sslmode=disable&connect_timeout=1",
@@ -30,35 +29,42 @@ func openBrokenDB(port string) *sql.DB {
 	return db
 }
 
-func openBrokenRC(port string) *redis.Client {
-	return redis.NewClient(&redis.Options{
-		Addr:        "127.0.0.1:" + port,
-		DialTimeout: 300 * time.Millisecond,
-	})
-}
-
-// TestHealth_Degraded_BothDown verifies 503 when neither DB nor Redis is reachable.
-func TestHealth_Degraded_BothDown(t *testing.T) {
+// TestHealth_Degraded_DBDown verifies 503 when the database is unreachable.
+func TestHealth_Degraded_DBDown(t *testing.T) {
 	db := openBrokenDB("59997")
 	defer db.Close()
-	rc := openBrokenRC("59996")
-	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second)
+	h := handler.NewHealthHandler(db, time.Now(), "v0.2.0", 2*time.Second)
 	req := httptest.NewRequest("GET", "/health", nil)
 	resp, err := newHealthApp(h).Test(req, 8000)
 	require.NoError(t, err)
 	assert.Equal(t, fiber.StatusServiceUnavailable, resp.StatusCode)
 }
 
+// TestHealth_DisabledRedis_NotReported verifies an unconfigured optional
+// dependency (e.g. Redis disabled) is absent from the services map.
+func TestHealth_DisabledRedis_NotReported(t *testing.T) {
+	db := openBrokenDB("59993")
+	defer db.Close()
+
+	h := handler.NewHealthHandler(db, time.Now(), "v0.2.0", 2*time.Second)
+	req := httptest.NewRequest("GET", "/health", nil)
+	resp, err := newHealthApp(h).Test(req, 8000)
+	require.NoError(t, err)
+
+	body := parseBody(t, resp)
+	services, ok := body["services"].(map[string]interface{})
+	require.True(t, ok)
+	assert.NotContains(t, services, "redis")
+	assert.Equal(t, "down", services["database"])
+}
+
 // TestHealth_ResponseFields verifies that the response body contains expected top-level keys.
 func TestHealth_ResponseFields(t *testing.T) {
 	db := openBrokenDB("59995")
 	defer db.Close()
-	rc := openBrokenRC("59994")
-	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second)
+	h := handler.NewHealthHandler(db, time.Now(), "v0.2.0", 2*time.Second)
 	req := httptest.NewRequest("GET", "/health", nil)
 	resp, err := newHealthApp(h).Test(req, 8000)
 	require.NoError(t, err)
@@ -74,10 +80,8 @@ func TestHealth_ResponseFields(t *testing.T) {
 func TestHealth_AddChecker_Down(t *testing.T) {
 	db := openBrokenDB("59987")
 	defer db.Close()
-	rc := openBrokenRC("59986")
-	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second)
+	h := handler.NewHealthHandler(db, time.Now(), "v0.2.0", 2*time.Second)
 	h.AddChecker("kafka", func(_ context.Context) string { return "down" })
 
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -95,10 +99,8 @@ func TestHealth_AddChecker_Down(t *testing.T) {
 func TestHealth_AddChecker_NotConfigured(t *testing.T) {
 	db := openBrokenDB("59985")
 	defer db.Close()
-	rc := openBrokenRC("59984")
-	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second)
+	h := handler.NewHealthHandler(db, time.Now(), "v0.2.0", 2*time.Second)
 	h.AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
 
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -115,10 +117,8 @@ func TestHealth_AddChecker_NotConfigured(t *testing.T) {
 func TestHealth_AddChecker_Chaining(t *testing.T) {
 	db := openBrokenDB("59983")
 	defer db.Close()
-	rc := openBrokenRC("59982")
-	defer rc.Close()
 
-	h := handler.NewHealthHandler(db, rc, time.Now(), "v0.2.0", 2*time.Second).
+	h := handler.NewHealthHandler(db, time.Now(), "v0.2.0", 2*time.Second).
 		AddChecker("kafka", func(_ context.Context) string { return "not_configured" }).
 		AddChecker("rabbitmq", func(_ context.Context) string { return "not_configured" })
 

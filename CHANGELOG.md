@@ -7,6 +7,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Redis is optional** — the API now starts and serves traffic with `REDIS_URL` empty.
+  New `repository.Cacher` fallback (`internal/repository/memory`, TTL + JSON semantics) and
+  `auth.MemoryBlacklist` keep cache, refresh sessions, password-reset tokens and logout
+  revocation working for the life of the process. Startup logs a warning that revocation is
+  instance-local; `/health` omits Redis when it is not configured.
+- **`pkg/ratelimit`** — `Limiter` interface with `MemoryLimiter` (fixed window, per instance)
+  and `RedisLimiter` (shared quota across replicas). `RATE_LIMIT_BACKEND=memory|redis`,
+  `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW`, `RATE_LIMIT_PREFIX`. The middleware fails open when
+  the shared backend is unreachable.
+- **`wapgo new` skeleton** — inherits optional Redis (`internal/repository/memory`,
+  `pkg/auth/blacklist.go`, `pkg/ratelimit`), conditionally keeps the Redis implementation
+  with `--redis`, and health reports Redis only when configured.
+
+### Changed
+- `repository.ErrCacheMiss` is now the canonical sentinel (the Redis package aliases it),
+  so usecases no longer import the Redis implementation to detect a cache miss.
+- `handler.NewHealthHandler(db, startTime, version, probeTimeout)` no longer takes a Redis
+  client; optional dependencies are registered with `AddChecker`.
+- `config.Load()` treats explicitly empty env vars as set (`AllowEmptyEnv`), so `REDIS_URL=`
+  disables Redis even when `config/config.yaml` defines a URL. Default `REDIS_URL` is empty.
+
 ### Security
 - **Dependency CVEs** — bumped every module `govulncheck` reported as called to its fixed version:
   `golang.org/x/net` 0.55.0 → 0.60.0, `golang.org/x/text` 0.37.0 → 0.42.0,
@@ -18,6 +40,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   anything else is rejected with an error instead of being executed.
 
 ### Fixed
+- API no longer logs reconnect/noise or reports `redis: down` in `/health` when Redis is
+  intentionally not deployed.
 - **gosec (medium/medium) clean** — generated project files and directories are created through
   `generator.WriteGeneratedFile` / `generator.MkdirGenerated`, which document why scaffolded output
   stays `0o644`/`0o755` (ordinary source files, identical to `git clone` output, never secrets) and
@@ -27,6 +51,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Dockerfile, plus `golangci-lint` `v2.12.2` → `v2.13.0` (first release built against Go 1.26).
   Required because `x/net` v0.60.0 / `x/text` v0.42.0 need the Go 1.26 language version, and
   `1.26.10` is the first patch release that also clears the stdlib CVEs in the advisory database.
+
+---
 
 ---
 

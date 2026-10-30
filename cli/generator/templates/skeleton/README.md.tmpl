@@ -20,10 +20,14 @@ make run
 | Feature | Status |
 |---|---|
 | Database | [[if eq .DB "mysql"]]MySQL[[else]]PostgreSQL[[end]] |
-| Redis cache | [[if .Redis]]✓ enabled[[else]]— (add later with `wapgo add redis`)[[end]] |
+| Redis cache | [[if .Redis]]✓ enabled (optional at runtime — empty `REDIS_URL` falls back to in-process)[[else]]— (in-process cache; add later with `wapgo add redis`)[[end]] |
+| Rate limiting | per-IP, `memory` by default (per instance); set `RATE_LIMIT_BACKEND=redis` for a shared quota |
 | Kafka | [[if .Kafka]]✓ enabled[[else]]— (add later with `wapgo add kafka`)[[end]] |
 | RabbitMQ | [[if .RabbitMQ]]✓ enabled[[else]]— (add later with `wapgo add rabbitmq`)[[end]] |
 | Observability | [[if eq .APM "none"]]disabled[[else]][[.APM]][[end]] |
+[[- if eq .DB "postgres" ]]
+| Worker | Postgres job queue (`cmd/worker`, `FOR UPDATE SKIP LOCKED`) |
+[[- end ]]
 
 The service starts on `http://localhost:8080`.
 
@@ -56,7 +60,9 @@ After generating, wire the new handler and repository in `cmd/api/main.go` and r
 | Target | Description |
 |---|---|
 | `make run` | Run the service locally |
-| `make build` | Build the binary to `bin/api` |
+| `make build` | Build the binary to `bin/api` |[[ if eq .DB "postgres" ]]
+| `make run-worker` | Run the Postgres job-queue worker |
+| `make build-worker` | Build the worker binary to `bin/worker` |[[ end ]]
 | `make test` | Run unit tests |
 | `make test-race` | Run tests with race detector |
 | `make coverage` | Run tests and check coverage ≥ 80% |
@@ -70,13 +76,15 @@ After generating, wire the new handler and repository in `cmd/api/main.go` and r
 
 ```
 .
-├── cmd/api/main.go              ← dependency wiring + entrypoint
+├── cmd/api/main.go              ← dependency wiring + entrypoint[[ if eq .DB "postgres" ]]
+├── cmd/worker/main.go           ← Postgres job-queue worker (SKIP LOCKED)[[ end ]]
 ├── config/                      ← Viper ENV-first config
 ├── internal/
 │   ├── domain/                  ← entities, repository interfaces, service interfaces
 │   ├── usecase/                 ← business logic
 │   ├── delivery/http/           ← handlers, middleware, routes
-│   └── repository/              ← GORM (db/) and Redis (redis/) implementations
+│   ├── queue/                   ← Postgres job queue (FOR UPDATE SKIP LOCKED)
+│   └── repository/              ← GORM (db/), in-process cache (memory/), Redis (redis/)
 ├── pkg/
 │   ├── auth/                    ← JWT middleware
 │   ├── httpclient/              ← resilient inter-service HTTP client
@@ -99,6 +107,8 @@ Key variables:
 | `APP_PORT` | `8080` | HTTP listen port |
 | `DB_DRIVER` | `[[.DB]]` | `postgres` or `mysql` |
 | `OBSERVABILITY_PROVIDER` | `[[.APM]]` | `otel`, `elastic_apm`, or `none` |
+| `REDIS_URL` | *(empty)* | Optional. Empty keeps the cache in-process (instance-local). |
+| `RATE_LIMIT_BACKEND` | `memory` | `memory` (per instance) or `redis` (shared quota) |
 
 ## Module
 

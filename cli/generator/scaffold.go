@@ -65,6 +65,14 @@ func (o ScaffoldOptions) skipPath(rel string) bool {
 		return true
 	case !o.GoogleAuth && rel == "internal/delivery/http/route/google_auth_route.go.tmpl":
 		return true
+	case !o.Redis && rel == "pkg/ratelimit/redis.go.tmpl":
+		// RedisLimiter needs the Redis add-on; MemoryLimiter is always available.
+		return true
+	case o.DB != "postgres" && (rel == "cmd/worker" || strings.HasPrefix(rel, "cmd/worker/") ||
+		rel == "internal/queue" || strings.HasPrefix(rel, "internal/queue/") ||
+		rel == "migrations/000002_jobs.up.sql" || rel == "migrations/000002_jobs.down.sql"):
+		// The job queue uses Postgres-only FOR UPDATE SKIP LOCKED.
+		return true
 	}
 	return false
 }

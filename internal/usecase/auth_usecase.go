@@ -11,7 +11,6 @@ import (
 	"gorm.io/gorm"
 
 	domainrepo "github.com/abdullahPrasetio/wapgo/internal/domain/repository"
-	rediscache "github.com/abdullahPrasetio/wapgo/internal/repository/redis"
 	"github.com/abdullahPrasetio/wapgo/pkg/auth"
 )
 
@@ -145,7 +144,7 @@ func (a *authUseCase) Refresh(ctx context.Context, req *RefreshRequest) (*LoginR
 	sessionKey := refreshKeyPrefix + claims.ID
 	var session refreshSession
 	if err := a.cacher.Get(ctx, sessionKey, &session); err != nil {
-		if errors.Is(err, rediscache.ErrCacheMiss) {
+		if errors.Is(err, domainrepo.ErrCacheMiss) {
 			return nil, ErrInvalidToken // session expired or revoked
 		}
 		return nil, fmt.Errorf("refresh session lookup: %w", err)
@@ -238,7 +237,7 @@ func (a *authUseCase) ResetPassword(ctx context.Context, req *ResetPasswordReque
 	key := resetKeyPrefix + req.Token
 	var email string
 	if err := a.cacher.Get(ctx, key, &email); err != nil {
-		if errors.Is(err, rediscache.ErrCacheMiss) {
+		if errors.Is(err, domainrepo.ErrCacheMiss) {
 			return ErrInvalidToken // expired or already used
 		}
 		return fmt.Errorf("reset password lookup: %w", err)

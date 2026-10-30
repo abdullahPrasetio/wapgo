@@ -1,0 +1,26 @@
+// Package ratelimit provides request-rate limiting that works without any
+// external dependency and can optionally be shared across replicas via Redis.
+//
+// MemoryLimiter is a per-instance fixed-window counter: with N replicas each
+// replica enforces its own quota (effective limit up to N × Max) and state
+// resets on restart. RedisLimiter keeps the counters in Redis so every replica
+// shares one quota; when Redis is unreachable the HTTP middleware fails open.
+package ratelimit
+
+import (
+	"context"
+	"time"
+)
+
+// Result describes the outcome of one Allow call.
+type Result struct {
+	Allowed    bool
+	Remaining  int
+	RetryAfter time.Duration
+}
+
+// Limiter decides whether a request identified by key may proceed.
+// Implementations must be safe for concurrent use.
+type Limiter interface {
+	Allow(ctx context.Context, key string) (Result, error)
+}
