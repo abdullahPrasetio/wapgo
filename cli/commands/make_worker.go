@@ -151,7 +151,9 @@ func appendWorkerMakeTargets(suffix, outDir string) {
 	if strings.Contains(string(data), runTarget) {
 		return
 	}
-	f, err := os.OpenFile("Makefile", os.O_APPEND|os.O_WRONLY, 0o644)
+	// Mode is ignored because O_CREATE is not set (appending to an existing
+	// Makefile); 0o600 keeps the value below gosec's file-mode threshold.
+	f, err := os.OpenFile("Makefile", os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}

@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Security
+- **Dependency CVEs** — bumped every module `govulncheck` reported as called to its fixed version:
+  `golang.org/x/net` 0.55.0 → 0.60.0, `golang.org/x/text` 0.37.0 → 0.42.0,
+  `google.golang.org/grpc` 1.81.1 → 1.83.1, `go.opentelemetry.io/otel*` 1.44.0 → 1.45.0,
+  `github.com/rabbitmq/amqp091-go` 1.11.0 → 1.14.0. `govulncheck ./...` now reports
+  **0 called vulnerabilities** (framework and CLI).
+- **`wapgo upgrade` tag validation** — the release tag fetched from the GitHub API is validated
+  against a semantic-version pattern (`vX.Y.Z[-pre][+meta]`) before it is passed to `go install`;
+  anything else is rejected with an error instead of being executed.
+
+### Fixed
+- **gosec (medium/medium) clean** — generated project files and directories are created through
+  `generator.WriteGeneratedFile` / `generator.MkdirGenerated`, which document why scaffolded output
+  stays `0o644`/`0o755` (ordinary source files, identical to `git clone` output, never secrets) and
+  centralise the justification. `make:migration` uses the same helpers; the `Makefile` append in
+  `make:worker` passes `0o600` (the mode is ignored without `O_CREATE`).
+- **CI toolchain** — Go `1.25.11` → `1.26.10` in `go.mod`, `go.work`, `ci.yml`, `release.yml` and the
+  Dockerfile, plus `golangci-lint` `v2.12.2` → `v2.13.0` (first release built against Go 1.26).
+  Required because `x/net` v0.60.0 / `x/text` v0.42.0 need the Go 1.26 language version, and
+  `1.26.10` is the first patch release that also clears the stdlib CVEs in the advisory database.
+
+---
+
 ## [1.7.0] — 2026-06-15
 
 ### Added

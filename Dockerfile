@@ -1,5 +1,5 @@
 # ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install git (needed for go mod download with VCS stamps)
 RUN apk add --no-cache git ca-certificates tzdata

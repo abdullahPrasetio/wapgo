@@ -12,10 +12,30 @@ import (
 const templateDelimLeft = "[["
 const templateDelimRight = "]]"
 
+// Generated artifacts are ordinary source files inside the user's own project:
+// they must stay readable by the toolchain, editors and VCS exactly like the
+// output of `git clone` / `go mod init`. They never hold credentials, so the
+// secret-file modes gosec expects (0o600 / 0o750) do not apply.
+
+// MkdirGenerated creates a directory (and any missing parents) for generated
+// project output.
+func MkdirGenerated(path string) error {
+	return os.MkdirAll(path, 0o755) // #nosec G301 -- generated source tree, not a secret
+}
+
+// WriteGeneratedFile writes a generated source file. The parent directory is
+// created when missing; an existing file is overwritten.
+func WriteGeneratedFile(path string, content []byte) error {
+	if err := MkdirGenerated(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return os.WriteFile(path, content, 0o644) // #nosec G306 -- generated source, not a secret
+}
+
 // Render parses tmplContent as a text/template (delimiters [[ ]]) and writes
 // the executed result to outPath.  Returns an error if outPath already exists.
 func Render(tmplContent, outPath string, data any) error {
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil { // #nosec G301 -- generated source tree, not a secret
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(outPath), err)
 	}
 
@@ -30,7 +50,9 @@ func Render(tmplContent, outPath string, data any) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	f, err := os.Create(outPath)
+	// outPath is the destination the operator asked wapgo to generate, so it is
+	// intentionally not derived from a fixed root.
+	f, err := os.Create(outPath) // #nosec G304 -- operator-supplied output path
 	if err != nil {
 		return fmt.Errorf("create file %s: %w", outPath, err)
 	}
@@ -52,7 +74,9 @@ func ReadModulePath() (string, error) {
 	}
 	for i := 0; i < 5; i++ {
 		path := filepath.Join(dir, "go.mod")
-		data, err := os.ReadFile(path)
+		// path is derived from the process working directory while searching the
+		// project root; no user-controlled input is involved.
+		data, err := os.ReadFile(path) // #nosec G304 -- path built from os.Getwd during go.mod discovery
 		if err == nil {
 			return parseModuleLine(string(data))
 		}

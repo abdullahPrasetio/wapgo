@@ -116,7 +116,7 @@ func Scaffold(fsys fs.FS, opts ScaffoldOptions, targetDir string) error {
 		outPath := filepath.Join(targetDir, filepath.FromSlash(rel))
 
 		if d.IsDir() {
-			return os.MkdirAll(outPath, 0o755)
+			return MkdirGenerated(outPath)
 		}
 
 		raw, err := fs.ReadFile(fsys, path)
@@ -148,10 +148,7 @@ func Scaffold(fsys fs.FS, opts ScaffoldOptions, targetDir string) error {
 			}
 			rendered := strings.ReplaceAll(buf.String(), skeletonModule, opts.Module)
 
-			if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-				return err
-			}
-			return os.WriteFile(outPath, []byte(rendered), 0o644)
+			return WriteGeneratedFile(outPath, []byte(rendered))
 		}
 
 		// Plain file — replace the module path placeholder and drop the
@@ -159,10 +156,7 @@ func Scaffold(fsys fs.FS, opts ScaffoldOptions, targetDir string) error {
 		content = strings.ReplaceAll(content, skeletonModule, opts.Module)
 		content = stripBuildIgnore(content)
 
-		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(outPath, []byte(content), 0o644)
+		return WriteGeneratedFile(outPath, []byte(content))
 	})
 }
 
@@ -192,7 +186,7 @@ func AddFeatureFiles(fsys fs.FS, subdir, module, destRoot string) ([]string, err
 		outPath := filepath.Join(destRoot, filepath.FromSlash(rel))
 
 		if d.IsDir() {
-			return os.MkdirAll(outPath, 0o755)
+			return MkdirGenerated(outPath)
 		}
 
 		outPath = strings.TrimSuffix(outPath, ".tmpl")
@@ -207,10 +201,7 @@ func AddFeatureFiles(fsys fs.FS, subdir, module, destRoot string) ([]string, err
 		content := strings.ReplaceAll(string(raw), skeletonModule, module)
 		content = stripBuildIgnore(content)
 
-		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(outPath, []byte(content), 0o644); err != nil {
+		if err := WriteGeneratedFile(outPath, []byte(content)); err != nil {
 			return err
 		}
 		relCreated, _ := filepath.Rel(destRoot, outPath)

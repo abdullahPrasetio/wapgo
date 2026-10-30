@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -99,10 +100,16 @@ func runUpgrade(checkOnly bool) error {
 		goExe = p
 	}
 
+	if err := validateReleaseTag(latestTag); err != nil {
+		return err
+	}
 	installRef := upgradeInstallPkg + "@" + latestTag
 	fmt.Printf("  %s  running: go install %s\n\n", stDim.Render("→"), installRef)
 
-	c := exec.Command(goExe, "install", installRef)
+	// goExe is the resolved "go" binary and installRef is the constant install
+	// package plus a tag already validated by validateReleaseTag, so no
+	// caller-controlled text reaches the shell (exec passes argv directly).
+	c := exec.Command(goExe, "install", installRef) // #nosec G204 -- fixed argv, semver-validated tag
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	c.Env = append(os.Environ(), "GOPROXY=proxy.golang.org,direct", "GONOSUMDB=github.com/abdullahPrasetio/*")
@@ -142,6 +149,22 @@ func fetchLatestRelease() (*githubRelease, error) {
 		return nil, err
 	}
 	return &rel, nil
+}
+
+// releaseTagRe matches the semantic-version release tags the upgrade command
+// accepts (e.g. "v1.4.1", "v1.4.1-rc1"). Anything else — including whitespace,
+// path separators and flag-like prefixes — is rejected before it can reach
+// `go install`.
+var releaseTagRe = regexp.MustCompile(
+	`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)` +
+		`(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?(\+[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$`)
+
+// validateReleaseTag rejects release tags that are not plain semantic versions.
+func validateReleaseTag(tag string) error {
+	if !releaseTagRe.MatchString(tag) {
+		return fmt.Errorf("unexpected release tag %q", tag)
+	}
+	return nil
 }
 
 // semverGreater returns true when a > b using simple X.Y.Z integer comparison.

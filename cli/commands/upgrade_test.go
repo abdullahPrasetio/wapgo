@@ -27,6 +27,22 @@ func TestSemverGreater(t *testing.T) {
 	}
 }
 
+func TestValidateReleaseTag(t *testing.T) {
+	valid := []string{"v1.4.1", "v0.0.1", "v10.20.30", "v1.4.1-rc1", "v1.4.1+meta"}
+	for _, tag := range valid {
+		if err := validateReleaseTag(tag); err != nil {
+			t.Errorf("validateReleaseTag(%q) = %v, want nil", tag, err)
+		}
+	}
+
+	invalid := []string{"", "1.4.1", "v1.4", "v1.4.1 -x", "v1.4.1; rm -rf /", "v1.4.1/../x", "--upload-pack=x"}
+	for _, tag := range invalid {
+		if err := validateReleaseTag(tag); err == nil {
+			t.Errorf("validateReleaseTag(%q) = nil, want error", tag)
+		}
+	}
+}
+
 func TestSemverParts(t *testing.T) {
 	tests := []struct {
 		input string
